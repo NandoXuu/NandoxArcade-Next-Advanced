@@ -24,6 +24,7 @@ CORES=(
   ppsspp                   # PSP
   melonds                  # Nintendo DS
   flycast                  # Dreamcast
+  pcsx2
 )
 
 mkdir -p "$JNI" "$ASSETS"

@@ -127,6 +127,7 @@ fun ArcadeApp(controls: ControlsController) {
         ) {
             composable("home") {
                 HomeScreen(
+                    registry = registry,
                     onOpenLibrary = { nav.navigate("library/$it") },
                     onOpenGame = { nav.navigate("game/$it") },
                     onCatalog = { nav.navigate("catalog") },
