@@ -407,7 +407,7 @@ private fun GameCard(game: GameEntity, lastPlayed: Long?, onClick: () -> Unit) {
                 file = thumb,
                 modifier = Modifier.fillMaxWidth().aspectRatio(16f / 9f),
             ) {
-                PlatformIcon(game.platformId, Modifier.fillMaxWidth().height(64.dp).padding(8.dp))
+                DefaultCover(Modifier.fillMaxHeight().padding(10.dp))
             }
             Column(Modifier.padding(12.dp)) {
                 Text(

@@ -135,7 +135,7 @@ fun GameScreen(
                     modifier = Modifier.fillMaxWidth().aspectRatio(16f / 9f),
                     sample = 1,
                 ) {
-                    PlatformIcon(game.platformId, Modifier.fillMaxWidth().height(96.dp).padding(12.dp))
+                    DefaultCover(Modifier.fillMaxHeight().padding(16.dp))
                 }
                 Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     Text(game.title, style = MaterialTheme.typography.titleLarge, maxLines = 2, overflow = TextOverflow.Ellipsis)

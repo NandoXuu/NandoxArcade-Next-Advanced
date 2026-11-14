@@ -23,6 +23,8 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import java.io.File
+import com.nandox.arcade.R
+import androidx.compose.ui.res.painterResource
 
 @Composable
 fun ScreenHeader(
@@ -119,4 +121,14 @@ fun PlatformIcon(platformId: String, modifier: Modifier = Modifier) {
             Text(platformId.uppercase(), style = MaterialTheme.typography.titleMedium)
         }
     }
+}
+
+@Composable
+fun DefaultCover(modifier: Modifier = Modifier) {
+    Image(
+        painter = painterResource(R.drawable.ndx_icon),
+        contentDescription = null,
+        contentScale = ContentScale.Fit,
+        modifier = modifier,
+    )
 }
