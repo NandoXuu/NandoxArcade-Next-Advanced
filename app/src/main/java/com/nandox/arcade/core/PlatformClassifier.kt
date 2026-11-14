@@ -11,6 +11,10 @@ object PlatformClassifier {
         "n64" to setOf("nintendo64"),
         "gba" to setOf("gameboyadvance"),
         "gamecube" to setOf("ngc"),
+        "nes" to setOf("famicom", "nintendoentertainmentsystem"),
+        "snes" to setOf("supernintendo", "superfamicom", "sfc"),
+        "gb" to setOf("gameboy", "gameboycolor", "gbc"),
+        "md" to setOf("megadrive", "genesis", "segagenesis"),
     )
 
     private fun normalize(s: String) = s.lowercase().filter { it.isLetterOrDigit() }

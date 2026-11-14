@@ -6,6 +6,7 @@ import android.content.Intent
 import android.content.res.AssetManager
 import android.net.Uri
 import android.os.Build
+import java.io.DataInputStream
 import java.io.File
 import org.json.JSONException
 import org.json.JSONObject
@@ -121,10 +122,25 @@ class ExternalAppAdapter(override val manifest: PluginManifest) : EmulatorAdapte
 class NativeCoreAdapter(override val manifest: PluginManifest) : EmulatorAdapter {
     private val lib = requireNotNull(manifest.coreLib)
 
-    override fun diagnose(context: Context): PluginStatus = when {
-        manifest.abis.none { it in PluginRegistry.deviceAbis } -> PluginStatus.ABI_INCOMPATIBLE
-        !File(context.applicationInfo.nativeLibraryDir, lib).exists() -> PluginStatus.RUNTIME_UNAVAILABLE
-        else -> PluginStatus.READY
+    /**
+     * O que decide é o arquivo .so que o Android realmente extraiu para este aparelho: se ele existe e o
+     * cabeçalho ELF bate com a arquitetura do aparelho, o core está pronto. O campo "abis" do manifesto
+     * só é usado para explicar a ausência do arquivo.
+     */
+    override fun diagnose(context: Context): PluginStatus {
+        val file = File(context.applicationInfo.nativeLibraryDir, lib)
+        if (file.exists()) {
+            return if (ElfCheck.runsOn(ElfCheck.archOf(file), PluginRegistry.deviceAbis)) {
+                PluginStatus.READY
+            } else {
+                PluginStatus.ABI_INCOMPATIBLE
+            }
+        }
+        return if (manifest.abis.none { it in PluginRegistry.deviceAbis }) {
+            PluginStatus.ABI_INCOMPATIBLE
+        } else {
+            PluginStatus.RUNTIME_UNAVAILABLE
+        }
     }
 
     override fun launch(context: Context, gameUri: Uri, platformId: String?): LaunchResult {
@@ -135,6 +151,41 @@ class NativeCoreAdapter(override val manifest: PluginManifest) : EmulatorAdapter
         } else {
             LaunchResult.FAILED
         }
+    }
+}
+
+/** Lê o cabeçalho ELF de um .so para saber se ele é mesmo ARM 32 bits (ARMv7) ou ARM 64 bits (AArch64). */
+object ElfCheck {
+    enum class Arch { ARM32, ARM64, OTHER, NOT_ELF }
+
+    private const val EM_ARM = 0x28
+    private const val EM_AARCH64 = 0xB7
+
+    /** [header] precisa ter pelo menos os 20 primeiros bytes do arquivo. */
+    fun archOf(header: ByteArray): Arch {
+        if (header.size < 20) return Arch.NOT_ELF
+        val magic = header[0].toInt() == 0x7F && header[1].toInt() == 'E'.code &&
+            header[2].toInt() == 'L'.code && header[3].toInt() == 'F'.code
+        if (!magic) return Arch.NOT_ELF
+        val elfClass = header[4].toInt()
+        val machine = (header[18].toInt() and 0xFF) or ((header[19].toInt() and 0xFF) shl 8)
+        return when {
+            elfClass == 1 && machine == EM_ARM -> Arch.ARM32
+            elfClass == 2 && machine == EM_AARCH64 -> Arch.ARM64
+            else -> Arch.OTHER
+        }
+    }
+
+    fun archOf(file: File): Arch = runCatching {
+        val header = ByteArray(20)
+        DataInputStream(file.inputStream()).use { it.readFully(header) }
+        archOf(header)
+    }.getOrDefault(Arch.NOT_ELF)
+
+    fun runsOn(arch: Arch, deviceAbis: List<String>): Boolean = when (arch) {
+        Arch.ARM32 -> deviceAbis.any { it == "armeabi-v7a" || it == "armeabi" }
+        Arch.ARM64 -> "arm64-v8a" in deviceAbis
+        else -> false
     }
 }
 

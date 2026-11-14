@@ -130,6 +130,7 @@ fun EmulatorScreen(
                     "3:2" -> 3f / 2f
                     "original" -> when (platformId) {
                         "gba" -> 3f / 2f
+                        "gb" -> 10f / 9f
                         "psp" -> 16f / 9f
                         else -> 4f / 3f
                     }

@@ -42,6 +42,10 @@ data class PadLayout(
                 shouldersRight = listOf(R),
                 stick = true, cButtons = true, select = false,
             )
+            "snes" -> PadLayout(
+                bottom = face("B", B), right = face("A", A), left = face("Y", Y), top = face("X", X),
+                shouldersLeft = listOf(L), shouldersRight = listOf(R), dpad = true,
+            )
             "gba" -> PadLayout(
                 bottom = face("B", B), right = face("A", A),
                 shouldersLeft = listOf(L), shouldersRight = listOf(R), dpad = true,

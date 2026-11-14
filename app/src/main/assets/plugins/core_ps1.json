@@ -7,6 +7,7 @@
     "ps1"
   ],
   "abis": [
+    "armeabi-v7a",
     "arm64-v8a"
   ],
   "coreLib": "libpcsx_rearmed_libretro_android.so",

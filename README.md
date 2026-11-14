@@ -30,16 +30,24 @@
 
 ## Consoles e núcleos
 
-| Console | Núcleo |
-| --- | --- |
-| PlayStation 1 | PCSX ReARMed (nativo), DuckStation (app externo) |
-| PlayStation 2 | PCSX2 |
-| PSP | PPSSPP |
-| Nintendo 64 | Mupen64Plus-Next |
-| Nintendo DS | melonDS |
-| Game Boy Advance | mGBA |
-| Dreamcast | Flycast |
-| GameCube e Wii | Dolphin (app externo) |
+| Console | Núcleo | Extensões de ROM |
+| --- | --- | --- |
+| NES | FCEUmm | `.nes` `.unf` `.unif` |
+| Super Nintendo | Snes9x 2010 | `.sfc` `.smc` `.swc` `.fig` |
+| Game Boy / Color | Gambatte | `.gb` `.gbc` |
+| Game Boy Advance | mGBA | `.gba` |
+| Mega Drive / Genesis | Genesis Plus GX | `.md` `.gen` `.smd` |
+| PlayStation 1 | PCSX ReARMed (nativo), DuckStation (app externo) | `.cue` `.bin` `.chd` `.pbp` |
+| Nintendo 64 | Mupen64Plus-Next (GLES3) | `.z64` `.n64` `.v64` |
+| GameCube e Wii | Dolphin (app externo) | `.gcm` `.rvz` `.iso` `.wbfs` |
+
+O Lemuroid (app externo) também é aceito como alternativa para os consoles acima, exceto GameCube e Wii.
+
+### Android TV ARM 32 bits (armeabi-v7a)
+
+O APK é universal: leva os mesmos cores para `armeabi-v7a` (ARM 32 bits, como a Philips Android TV 11) e para `arm64-v8a`. O script `scripts/fetch_cores.sh` confere o cabeçalho ELF de cada `.so` baixado (classe e arquitetura) e o workflow repete essa conferência dentro do APK final; um `.so` com a arquitetura errada derruba o build. No aparelho, o app também lê o cabeçalho do `.so` empacotado antes de dizer que um core está pronto ou incompatível.
+
+Flycast (Dreamcast), melonDS (Nintendo DS), PPSSPP (PSP) e PCSX2 (PlayStation 2) são pesados demais para esse hardware e saíram da configuração ativa. Seus manifestos estão guardados em `docs/plugins-desativados/` e nada da sua biblioteca, saves ou BIOS é apagado.
 
 Você pode ativar ou desativar cada emulador em **Configurações → Emuladores e plugins**.
 
@@ -49,7 +57,7 @@ Você pode ativar ou desativar cada emulador em **Configurações → Emuladores
 2. Escolha um console na tela inicial e abra a biblioteca dele.
 3. Toque no jogo para ver as opções: Continuar, Novo Jogo, Reiniciar Save, Configurações do Jogo ou Excluir Jogo.
 
-Para PS2, o PCSX2 precisa da BIOS do console. Coloque os arquivos em `Android/data/com.nandox.arcade/files/system`.
+Para PlayStation 1, o PCSX ReARMed precisa da BIOS do console. Coloque os arquivos em `Android/data/com.nandox.arcade/files/system`. NES, SNES, Game Boy, GBA, Mega Drive e Nintendo 64 não precisam de BIOS.
 
 ## Saves e backup
 

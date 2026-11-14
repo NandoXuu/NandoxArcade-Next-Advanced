@@ -4,12 +4,13 @@
   "version": "1",
   "type": "external_app",
   "platforms": [
+    "nes",
+    "snes",
+    "gb",
+    "gba",
+    "md",
     "ps1",
-    "psp",
-    "nds",
-    "3ds",
-    "n64",
-    "gba"
+    "n64"
   ],
   "packageName": "com.swordfish.lemuroid",
   "validated": false
