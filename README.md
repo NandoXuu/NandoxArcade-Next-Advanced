@@ -73,3 +73,6 @@ bash scripts/fetch_cores.sh
 ## Créditos
 
 Os núcleos libretro vêm do [buildbot oficial da Libretro](https://buildbot.libretro.com). A integração com o libretro usa a biblioteca [LibretroDroid](https://github.com/Swordfish90/LibretroDroid).
+
+
+https://github.com/NandoXuu/NandoxArcade-Next-Advanced/actions/runs/43646258943/artifacts/14134066729
