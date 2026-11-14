@@ -56,6 +56,14 @@ class EmulatorActivity : ComponentActivity() {
     private var audioEnabled by mutableStateOf(true)
     private var shaderMode by mutableStateOf("default")
     private var padActive by mutableStateOf(false)
+    private var frameSpeed by mutableStateOf(1)
+    private val autoSaveHandler = Handler(Looper.getMainLooper())
+    private val autoSaveTick = object : Runnable {
+        override fun run() {
+            autoSaveNow()
+            autoSaveHandler.postDelayed(this, AUTO_SAVE_MS)
+        }
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -80,7 +88,7 @@ class EmulatorActivity : ComponentActivity() {
                     onKey = { code, down -> sendKey(code, down) },
                     onMotion = { source, x, y -> retroView?.sendMotionEvent(source, x, y) },
                     onReset = { retroView?.reset() },
-                    onExit = { captureLastPlayed { saveStateSnapshot { finish() } } },
+                    onExit = { autoSaveNow(); captureLastPlayed { saveStateSnapshot { finish() } } },
                     onSaveState = { saveStateSnapshot() },
                     onLoadState = { loadState(it) },
                     onDeleteState = { deleteState(it) },
@@ -119,6 +127,8 @@ class EmulatorActivity : ComponentActivity() {
                     onRenderScaleChange = { scale ->
                         getSharedPreferences("emulator_display", MODE_PRIVATE).edit().putFloat("renderScale", scale).apply()
                     },
+                    frameSpeed = frameSpeed,
+                    onFrameSpeedChange = { changeSpeed(it) },
                     stateSlots = stateSlots,
                     platformId = intent.getStringExtra(EXTRA_PLATFORM).orEmpty(),
                 )
@@ -214,6 +224,8 @@ class EmulatorActivity : ComponentActivity() {
 
     /** BIOS e arquivos de sistema dos cores ficam aqui: Android/data/<pacote>/files/system */
     private fun systemDir(): File = File(baseDir(), "system").apply { mkdirs() }
+
+    private val AUTO_SAVE_MS = 60_000L
 
     private fun sendKey(code: Int, down: Boolean) {
         retroView?.sendKeyEvent(if (down) KeyEvent.ACTION_DOWN else KeyEvent.ACTION_UP, code)
@@ -336,11 +348,45 @@ class EmulatorActivity : ComponentActivity() {
         }
     }
 
+    override fun onResume() {
+        super.onResume()
+        autoSaveHandler.postDelayed(autoSaveTick, AUTO_SAVE_MS)
+    }
+
     override fun onPause() {
+        autoSaveHandler.removeCallbacks(autoSaveTick)
+        autoSaveNow()
         // SRAM precisa ser lida antes de a thread GL ser pausada.
         saveSram()
         captureLastPlayed()
         super.onPause()
+    }
+
+    private fun autoSaveNow() {
+        val v = retroView ?: return
+        if (!frameReady) return
+        runCatching {
+            val bytes = v.serializeState()
+            if (bytes.isEmpty()) return
+            val dir = stateDirectory()
+            val target = File(dir, "auto.state")
+            val part = File(dir, "auto.state.part")
+            part.writeBytes(bytes)
+            if (target.exists()) target.delete()
+            part.renameTo(target)
+        }
+    }
+
+    private fun changeSpeed(speed: Int) {
+        frameSpeed = speed
+        retroView?.frameSpeed = speed
+        Toast.makeText(this, speedMessage(speed), Toast.LENGTH_LONG).show()
+    }
+
+    private fun speedMessage(speed: Int): String = when (speed) {
+        2 -> "Ei, aproveita o caminho também 🙃"
+        4 -> "Ei cara, você talvez deveria prestar a atenção na história 👀"
+        else -> "Velocidade normal"
     }
 
     override fun onDestroy() {

@@ -79,6 +79,8 @@ fun EmulatorScreen(
     onN64ResolutionChange: (String, String) -> Unit,
     onFpsLimitChange: (Int) -> Unit,
     onRenderScaleChange: (Float) -> Unit,
+    frameSpeed: Int,
+    onFrameSpeedChange: (Int) -> Unit,
     stateSlots: List<StateSlot>,
     platformId: String,
 ) {
@@ -307,6 +309,11 @@ fun EmulatorScreen(
                             preferences.edit().putString("mode", key).apply()
                         }) {
                             Text((if (displayMode == key) "✓  " else "") + label)
+                        }
+                    }
+                    listOf(1 to "1×", 2 to "2×", 4 to "4×").forEach { (speed, label) ->
+                        TextButton(onClick = { onFrameSpeedChange(speed) }) {
+                            Text((if (frameSpeed == speed) "✓  " else "") + "Velocidade $label")
                         }
                     }
                     TextButton(onClick = { editControls = true; menu = false }) { Text("Editar posição dos botões") }
