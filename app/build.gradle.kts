@@ -16,8 +16,9 @@ android {
         versionCode = 1
         versionName = "0.1.0"
 
-        // Os cores libretro baixados por scripts/fetch_cores.sh são arm64-v8a
-        ndk { abiFilters += "arm64-v8a" }
+        // APK universal: TVs/TV boxes podem expor ARMv7 ou ARM64.
+        // Os cores disponíveis para cada ABI são empacotados separadamente.
+        ndk { abiFilters += setOf("arm64-v8a", "armeabi-v7a") }
     }
 
     packaging {
