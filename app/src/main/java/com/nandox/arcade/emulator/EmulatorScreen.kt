@@ -11,6 +11,9 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.ui.input.pointer.PointerEventPass
+import androidx.compose.ui.input.pointer.awaitPointerEvent
+import androidx.compose.ui.input.pointer.awaitPointerEventScope
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.rememberScrollState
@@ -57,6 +60,8 @@ fun EmulatorScreen(
     view: GLRetroView?,
     status: String?,
     layout: PadLayout,
+    padActive: Boolean,
+    onTouchScreen: () -> Unit,
     onKey: (keyCode: Int, down: Boolean) -> Unit,
     onMotion: (source: Int, x: Float, y: Float) -> Unit,
     onReset: () -> Unit,
@@ -104,7 +109,19 @@ fun EmulatorScreen(
         onMotion(GLRetroView.MOTION_SOURCE_ANALOG_RIGHT, x, y)
     }
 
-    Box(Modifier.fillMaxSize().background(Color.Black)) {
+    Box(
+        Modifier
+            .fillMaxSize()
+            .background(Color.Black)
+            .pointerInput(Unit) {
+                awaitPointerEventScope {
+                    while (true) {
+                        awaitPointerEvent(PointerEventPass.Initial)
+                        onTouchScreen()
+                    }
+                }
+            },
+    ) {
         if (view != null) {
             BoxWithConstraints(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 val ratio = when (displayMode) {
@@ -141,7 +158,7 @@ fun EmulatorScreen(
             }
         }
 
-        if (view != null && showControls) {
+        if (view != null && showControls && !padActive) {
             val useStick = if (layout.canToggleStick) stickMode else layout.stick
             val useDpad = if (layout.canToggleStick) !stickMode else layout.dpad
             BoxWithConstraints(

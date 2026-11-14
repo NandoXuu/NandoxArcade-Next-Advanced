@@ -18,6 +18,8 @@ import com.nandox.arcade.controller.AnalogNavigator
 import com.nandox.arcade.controller.ControlsController
 import com.nandox.arcade.controller.ControlsStore
 import com.nandox.arcade.controller.InputAction
+import com.nandox.arcade.settings.AppSettings
+import com.nandox.arcade.settings.Immersive
 import com.nandox.arcade.ui.ArcadeApp
 import com.nandox.arcade.ui.ArcadeTheme
 
@@ -29,7 +31,17 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         controls = ControlsController(ControlsStore(this))
         enableEdgeToEdge()
+        applyImmersive()
         setContent { ArcadeTheme { ArcadeApp(controls) } }
+    }
+
+    override fun onWindowFocusChanged(hasFocus: Boolean) {
+        super.onWindowFocusChanged(hasFocus)
+        if (hasFocus) applyImmersive()
+    }
+
+    private fun applyImmersive() {
+        Immersive.apply(this, AppSettings.global(this).getBoolean("immersive", true))
     }
 
     override fun onResume() {

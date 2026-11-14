@@ -55,6 +55,7 @@ class EmulatorActivity : ComponentActivity() {
     private var stateSlots by mutableStateOf<List<StateSlot>>(emptyList())
     private var audioEnabled by mutableStateOf(true)
     private var shaderMode by mutableStateOf("default")
+    private var padActive by mutableStateOf(false)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -74,6 +75,8 @@ class EmulatorActivity : ComponentActivity() {
                     view = view,
                     status = status,
                     layout = layout,
+                    padActive = padActive,
+                    onTouchScreen = { padActive = false },
                     onKey = { code, down -> sendKey(code, down) },
                     onMotion = { source, x, y -> retroView?.sendMotionEvent(source, x, y) },
                     onReset = { retroView?.reset() },
@@ -373,6 +376,7 @@ class EmulatorActivity : ComponentActivity() {
         val padKey = KeyEvent.isGamepadButton(code) ||
             code in KeyEvent.KEYCODE_DPAD_UP..KeyEvent.KEYCODE_DPAD_RIGHT
         if (retroView != null && padKey && isPadSource(event.source)) {
+            padActive = true
             when (event.action) {
                 KeyEvent.ACTION_DOWN -> if (event.repeatCount == 0) sendKey(code, true)
                 KeyEvent.ACTION_UP -> sendKey(code, false)
@@ -385,6 +389,7 @@ class EmulatorActivity : ComponentActivity() {
     override fun dispatchGenericMotionEvent(ev: MotionEvent): Boolean {
         val v = retroView
         if (v != null && ev.action == MotionEvent.ACTION_MOVE && ev.source and InputDevice.SOURCE_JOYSTICK != 0) {
+            padActive = true
             v.sendMotionEvent(
                 GLRetroView.MOTION_SOURCE_DPAD,
                 ev.getAxisValue(MotionEvent.AXIS_HAT_X), ev.getAxisValue(MotionEvent.AXIS_HAT_Y),
