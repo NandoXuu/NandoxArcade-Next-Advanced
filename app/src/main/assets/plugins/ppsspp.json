@@ -1,0 +1,11 @@
+{
+  "id": "ppsspp",
+  "name": "PPSSPP",
+  "version": "1",
+  "type": "external_app",
+  "platforms": [
+    "psp"
+  ],
+  "packageName": "org.ppsspp.ppsspp",
+  "validated": false
+}
