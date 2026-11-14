@@ -381,8 +381,8 @@ private fun PlacedControl(
     content: @Composable () -> Unit,
 ) {
     val density = LocalDensity.current
-    var x by remember(id) { mutableStateOf(preferences.getFloat("control_$id_x", defaultX).coerceIn(0f, 1f)) }
-    var y by remember(id) { mutableStateOf(preferences.getFloat("control_$id_y", defaultY).coerceIn(0f, 1f)) }
+    var x by remember(id) { mutableStateOf(preferences.getFloat("control_${id}_x", defaultX).coerceIn(0f, 1f)) }
+    var y by remember(id) { mutableStateOf(preferences.getFloat("control_${id}_y", defaultY).coerceIn(0f, 1f)) }
     Box(
         Modifier
             .offset(x = containerWidth * x, y = containerHeight * y)
