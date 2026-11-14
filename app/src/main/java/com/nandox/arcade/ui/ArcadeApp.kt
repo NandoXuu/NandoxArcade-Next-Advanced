@@ -110,13 +110,36 @@ import com.nandox.arcade.emulator.LaunchResult
 import com.nandox.arcade.emulator.PluginRegistry
 import com.nandox.arcade.emulator.PluginStore
 import com.nandox.arcade.emulator.PluginStatus
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.Offset
 
 @Composable
 fun ArcadeApp(controls: ControlsController) {
     val nav = rememberNavController()
     val context = LocalContext.current
     val registry = remember { PluginRegistry.load(context) }
-    Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background).safeDrawingPadding()) {
+    Box(
+        Modifier
+            .fillMaxSize()
+            .background(MaterialTheme.colorScheme.background)
+            .drawBehind {
+                drawRect(
+                    brush = Brush.radialGradient(
+                        listOf(Color(0x553D2A8C), Color.Transparent),
+                        center = Offset(size.width, 0f),
+                        radius = size.width * 0.6f,
+                    ),
+                )
+                drawRect(
+                    brush = Brush.radialGradient(
+                        listOf(Color(0x3D3D2A8C), Color.Transparent),
+                        center = Offset(0f, size.height),
+                        radius = size.width * 0.5f,
+                    ),
+                )
+            }
+            .safeDrawingPadding(),
+    ) {
         NavHost(
             nav,
             startDestination = "home",

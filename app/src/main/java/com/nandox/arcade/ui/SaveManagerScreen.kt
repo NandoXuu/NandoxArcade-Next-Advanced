@@ -158,7 +158,7 @@ fun SaveManagerScreen(registry: PluginRegistry) {
         Text("Saves e backups", fontSize = 24.sp, fontWeight = FontWeight.Bold)
         Text(
             "Save Data é o salvamento do jogo. Save State é a captura completa do emulador. " +
-                "Backup é uma cópia de qualquer um deles. O Nandox só enxerga pastas que você escolher.",
+                "Backup é uma cópia de qualquer um deles. O NDXEMULATOR só enxerga pastas que você escolher.",
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             fontSize = 13.sp,
         )

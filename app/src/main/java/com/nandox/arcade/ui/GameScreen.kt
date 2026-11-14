@@ -16,11 +16,8 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Button
 import androidx.compose.material3.Card
-import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -55,6 +52,14 @@ import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.unit.sp
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.runtime.rememberCoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 
 private fun formatDate(millis: Long): String =
     SimpleDateFormat("dd/MM/yyyy HH:mm", Locale.getDefault()).format(Date(millis))
@@ -104,6 +109,21 @@ fun GameScreen(
     val auto = slots.firstOrNull { StateStore.isAuto(it.file) }
     val continueSlot = auto ?: newest
 
+    val savesBytes = slots.sumOf { it.file.length() }
+    val scope = rememberCoroutineScope()
+    var confirm by remember { mutableStateOf<String?>(null) }
+
+    fun restartSave() {
+        slots.forEach { StateStore.delete(it.file) }
+        PlayHistory.clearPending(context)
+        refresh++
+    }
+
+    fun removeGame() {
+        scope.launch(Dispatchers.IO) { ArcadeDb.get(context).games().deleteGameByUri(game.uri) }
+        onBack()
+    }
+
     @Composable
     fun Header() {
         Card(colors = arcadeCardColors(), modifier = Modifier.fillMaxWidth()) {
@@ -115,32 +135,40 @@ fun GameScreen(
                 ) {
                     PlatformIcon(game.platformId, Modifier.fillMaxWidth().height(96.dp).padding(12.dp))
                 }
-                Column(Modifier.padding(14.dp)) {
+                Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     Text(game.title, style = MaterialTheme.typography.titleLarge, maxLines = 2, overflow = TextOverflow.Ellipsis)
                     Text(
-                        "$platformName · " + if (played > 0L) "Última partida: ${formatDate(played)}" else "Ainda não jogado",
+                        platformName,
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
+                    Row(Modifier.fillMaxWidth().padding(top = 10.dp)) {
+                        Column(Modifier.weight(1f)) {
+                            Text("Última sessão", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text(
+                                if (played > 0L) formatDate(played) else "Nunca jogado",
+                                style = MaterialTheme.typography.bodyMedium,
+                                fontWeight = FontWeight.SemiBold,
+                            )
+                        }
+                        Column(Modifier.weight(1f)) {
+                            Text("Tamanho do save", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text(formatBytes(savesBytes), style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
+                        }
+                    }
                 }
             }
         }
     }
 
     @Composable
-    fun Actions() {
+    fun Options() {
         Column(verticalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
-            Button(onClick = { play(null) }, modifier = Modifier.fillMaxWidth().height(52.dp)) { Text("NOVO JOGO") }
-            FilledTonalButton(
-                onClick = { play(continueSlot?.file) },
-                enabled = continueSlot != null,
-                modifier = Modifier.fillMaxWidth().height(52.dp),
-            ) {
-                Text(if (continueSlot != null) "CONTINUAR · ${formatDate(continueSlot.file.lastModified())}" else "CONTINUAR (sem save)")
-            }
-            OutlinedButton(onClick = { onSettings(game.id) }, modifier = Modifier.fillMaxWidth().height(52.dp)) {
-                Text("CONFIGURAÇÕES DO JOGO")
-            }
+            OptionRow("▶", "Continuar Jogo", "Retome de onde parou", highlighted = true) { play(continueSlot?.file) }
+            OptionRow("+", "Novo Jogo", "Inicie do zero") { play(null) }
+            OptionRow("↻", "Reiniciar Save", "Apague o progresso atual") { confirm = "restart" }
+            OptionRow("⚙", "Configurações do Jogo", "Ajuste as opções do emulador") { onSettings(game.id) }
+            OptionRow("✕", "Excluir Jogo", null, danger = true) { confirm = "delete" }
         }
     }
 
@@ -196,14 +224,16 @@ fun GameScreen(
             if (landscape) {
                 Row(Modifier.fillMaxSize(), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
                     Column(
-                        Modifier.weight(0.45f).verticalScroll(rememberScrollState()),
+                        Modifier.weight(0.42f).verticalScroll(rememberScrollState()),
                         verticalArrangement = Arrangement.spacedBy(12.dp),
                     ) {
                         Header()
-                        Actions()
-                        Spacer(Modifier.height(8.dp))
                     }
-                    Column(Modifier.weight(0.55f).verticalScroll(rememberScrollState())) {
+                    Column(
+                        Modifier.weight(0.58f).verticalScroll(rememberScrollState()),
+                        verticalArrangement = Arrangement.spacedBy(12.dp),
+                    ) {
+                        Options()
                         Saves()
                         Spacer(Modifier.height(8.dp))
                     }
@@ -214,12 +244,33 @@ fun GameScreen(
                     verticalArrangement = Arrangement.spacedBy(12.dp),
                 ) {
                     Header()
-                    Actions()
+                    Options()
                     Saves()
                     Spacer(Modifier.height(8.dp))
                 }
             }
         }
+    }
+
+    when (confirm) {
+        "restart" -> AlertDialog(
+            onDismissRequest = { confirm = null },
+            title = { Text("Reiniciar save?") },
+            text = { Text("Todos os saves deste jogo serão apagados.") },
+            confirmButton = {
+                TextButton(onClick = { restartSave(); confirm = null }) { Text("Reiniciar") }
+            },
+            dismissButton = { TextButton(onClick = { confirm = null }) { Text("Cancelar") } },
+        )
+        "delete" -> AlertDialog(
+            onDismissRequest = { confirm = null },
+            title = { Text("Excluir jogo?") },
+            text = { Text("O jogo sai da biblioteca. Os saves continuam guardados no aparelho.") },
+            confirmButton = {
+                TextButton(onClick = { confirm = null; removeGame() }) { Text("Excluir") }
+            },
+            dismissButton = { TextButton(onClick = { confirm = null }) { Text("Cancelar") } },
+        )
     }
 
     pendingDelete?.let { slot ->
@@ -281,4 +332,52 @@ fun GameSettingsScreen(gameId: Long, onBack: () -> Unit) {
             Spacer(Modifier.height(16.dp))
         }
     }
+}
+
+@Composable
+private fun OptionRow(
+    glyph: String,
+    title: String,
+    subtitle: String?,
+    highlighted: Boolean = false,
+    danger: Boolean = false,
+    onClick: () -> Unit,
+) {
+    val tint = if (danger) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface
+    Card(
+        colors = arcadeCardColors(),
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(16.dp))
+            .then(
+                if (highlighted) Modifier.border(2.dp, MaterialTheme.colorScheme.primary, RoundedCornerShape(16.dp))
+                else Modifier,
+            )
+            .clickable(onClick = onClick),
+    ) {
+        Row(
+            Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 14.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(glyph, fontSize = 20.sp, color = if (danger) tint else MaterialTheme.colorScheme.primary)
+            Spacer(Modifier.width(14.dp))
+            Column(Modifier.weight(1f)) {
+                Text(title, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold, color = tint)
+                if (subtitle != null) {
+                    Text(
+                        subtitle,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+            if (!danger) Text("›", fontSize = 24.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+    }
+}
+
+private fun formatBytes(bytes: Long): String = when {
+    bytes >= 1024L * 1024L -> "%.1f MB".format(bytes / 1048576.0)
+    bytes >= 1024L -> "${bytes / 1024} KB"
+    else -> "$bytes B"
 }

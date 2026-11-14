@@ -24,7 +24,7 @@ object PlatformClassifier {
         if (candidates.isEmpty()) return null
         if (candidates.size == 1) return candidates.first().id
 
-        val segments = folderNames.map(::normalize)
+        val segments = (folderNames + fileName.substringBeforeLast('.')).map(::normalize)
         val scored = candidates.map { p ->
             p to tokens(p).filter { t -> segments.any { t in it } }.maxOfOrNull { it.length }.orZero()
         }

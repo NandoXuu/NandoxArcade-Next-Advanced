@@ -225,6 +225,56 @@ fun HomeScreen(
                     }
                 }
             }
+
+            recent.firstOrNull()?.let { (game, _) ->
+                Spacer(Modifier.height(12.dp))
+                ContinueBar(game = game, onClick = { onOpenGame(game.id) })
+            }
+        }
+    }
+}
+
+@Composable
+private fun ContinueBar(game: GameEntity, onClick: () -> Unit) {
+    val platformName = Platforms.byId(game.platformId)?.name ?: game.platformId
+    Card(colors = arcadeCardColors(), modifier = Modifier.fillMaxWidth()) {
+        Row(
+            Modifier.fillMaxWidth().padding(14.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Box(
+                Modifier.size(40.dp).clip(CircleShape).background(accentBrush),
+                contentAlignment = Alignment.Center,
+            ) {
+                Text("i", color = Color.White, fontWeight = FontWeight.Bold)
+            }
+            Spacer(Modifier.width(14.dp))
+            Column(Modifier.weight(1f)) {
+                Text(
+                    game.title,
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.SemiBold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Text(
+                    "Continuar de onde parou · $platformName",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+            Spacer(Modifier.width(12.dp))
+            Box(
+                Modifier
+                    .clip(RoundedCornerShape(26.dp))
+                    .background(accentBrush)
+                    .clickable(onClick = onClick)
+                    .padding(horizontal = 22.dp, vertical = 12.dp),
+            ) {
+                Text("▶  Continuar", color = Color.White, fontWeight = FontWeight.Bold)
+            }
         }
     }
 }
@@ -239,7 +289,7 @@ private fun Sidebar(
         Modifier
             .width(220.dp)
             .fillMaxHeight()
-            .background(MaterialTheme.colorScheme.surface)
+            .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.6f))
             .padding(horizontal = 14.dp, vertical = 20.dp),
         verticalArrangement = Arrangement.spacedBy(6.dp),
     ) {
@@ -249,7 +299,13 @@ private fun Sidebar(
         ) {
             Text("🎮", fontSize = 26.sp)
             Spacer(Modifier.width(10.dp))
-            Text("Nandox Arcade", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+            Text("NDX", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+            Text(
+                "EMULATOR",
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.primary,
+            )
         }
         HomeSection.values().forEach { item ->
             SidebarItem(item.glyph, item.label, item == selected) { onSelect(item) }
@@ -257,7 +313,7 @@ private fun Sidebar(
         SidebarItem("⚙", "Configurações", selected = false, onClick = onSettings)
         Spacer(Modifier.weight(1f))
         Text(
-            "v1.0.0-beta",
+            "v1.0.0",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.padding(start = 8.dp),
