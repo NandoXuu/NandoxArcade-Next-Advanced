@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
-# Baixa os cores libretro LEVES para armeabi-v7a (ARM 32 bits, ex.: Philips Android TV 11) e arm64-v8a.
+# Baixa os cores libretro para armeabi-v7a (ARM 32 bits, ex.: Philips Android TV 11) e arm64-v8a.
+# Os cores leves (NES, SNES, GB, GBA, Mega Drive, PS1, N64) vão nas duas ABIs. Os pesados (PSP, DS,
+# Dreamcast, PS2) vão só em arm64-v8a (celular): a TV ARM32 não os extrai nem os carrega.
 # O APK universal sai instalável em TVs/boxes ARMv7 e ARM64.
 #
 # Cada .so baixado tem o cabeçalho ELF conferido (classe e arquitetura): o nome da pasta do servidor
 # não prova nada. Um arquivo 64 bits dentro da pasta armeabi-v7a (ou o contrário) é descartado e o
 # build falha, em vez de gerar um APK que só mostra "ABI incompatível" na TV.
 #
-# Emuladores pesados (Flycast, melonDS, PPSSPP, PCSX2) não fazem parte da configuração ativa:
-# os manifestos antigos estão em docs/plugins-desativados/.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -26,6 +26,14 @@ REQUIRED_CORES=(
 # Opcionais: se não houver um .so válido para a ABI, só avisa (esse console fica sem core).
 OPTIONAL_CORES=(
   mupen64plus_next_gles3
+)
+
+# Pesados: só arm64-v8a (celular). Obrigatórios nessa ABI.
+HEAVY_ARM64_CORES=(
+  ppsspp
+  melonds
+  flycast
+  pcsx2
 )
 
 tmp="$(mktemp -d)"
@@ -87,6 +95,10 @@ expected=()
 for core in "${REQUIRED_CORES[@]}" "${OPTIONAL_CORES[@]}"; do
   expected+=("lib${core}_libretro_android.so")
 done
+expected_arm64=("${expected[@]}")
+for core in "${HEAVY_ARM64_CORES[@]}"; do
+  expected_arm64+=("lib${core}_libretro_android.so")
+done
 
 failed=0
 for abi in armeabi-v7a arm64-v8a; do
@@ -106,11 +118,23 @@ for abi in armeabi-v7a arm64-v8a; do
     fi
   done
 
-  # remove cores de execuções antigas que não fazem mais parte da lista (ex.: flycast, ppsspp, pcsx2, melonds)
+  if [[ "$abi" == "arm64-v8a" ]]; then
+    for core in "${HEAVY_ARM64_CORES[@]}"; do
+      if ! fetch_one "$abi" "$core"; then
+        echo "ERRO: core obrigatório ausente/inválido: $core ($abi)" >&2
+        failed=1
+      fi
+    done
+    keep_list=("${expected_arm64[@]}")
+  else
+    keep_list=("${expected[@]}")
+  fi
+
+  # remove cores de execuções antigas que não fazem mais parte da lista (ex.: um pesado que apareceu na pasta ARM32)
   for f in "$JNI"/lib*_libretro_android.so; do
     [[ -e "$f" ]] || continue
     keep=0
-    for e in "${expected[@]}"; do
+    for e in "${keep_list[@]}"; do
       [[ "$(basename "$f")" == "$e" ]] && keep=1
     done
     if [[ "$keep" -eq 0 ]]; then
@@ -120,8 +144,13 @@ for abi in armeabi-v7a arm64-v8a; do
   done
 done
 
-# o PPSSPP.zip só servia ao PPSSPP, que saiu da configuração ativa
-rm -f "$ROOT/app/src/main/assets/system/PPSSPP.zip"
+# Assets de sistema do PPSSPP (fontes e texturas), usados só pelo core do celular.
+pp="$ROOT/app/src/main/assets/system/PPSSPP.zip"
+if [[ ! -s "$pp" || "${FORCE:-0}" == "1" ]]; then
+  mkdir -p "$(dirname "$pp")"
+  curl -fL --retry 3 --retry-delay 2 -sS -o "$pp" "https://buildbot.libretro.com/assets/system/PPSSPP.zip" \
+    || { echo "ERRO: não foi possível baixar PPSSPP.zip" >&2; failed=1; }
+fi
 
 if [[ "$failed" -ne 0 ]]; then
   echo "Falha: faltam cores obrigatórios (veja os erros acima)." >&2

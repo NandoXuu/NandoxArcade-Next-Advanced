@@ -9,6 +9,9 @@ import org.junit.Test
 class BundledCoresTest {
     private val pluginsDir = File("src/main/assets/plugins")
     private val script = File("../scripts/fetch_cores.sh")
+    private val heavyCores = listOf("flycast", "pcsx2", "ppsspp", "melonds")
+
+    private fun isHeavy(m: PluginManifest) = heavyCores.any { it in (m.coreLib ?: "").lowercase() }
 
     @Test
     fun allBundledManifestsAreValid() {
@@ -27,8 +30,8 @@ class BundledCoresTest {
             assertTrue("coreLib inesperado: $lib", lib.startsWith("lib") && lib.endsWith("_libretro_android.so"))
             val name = lib.removePrefix("lib").removeSuffix("_libretro_android.so")
             assertTrue("fetch_cores.sh não baixa '$name' (plugin ${m.id})", Regex("""(?m)^\s*$name\b""").containsMatchIn(text))
-            assertTrue("${m.id} deve declarar armeabi-v7a (Android TV ARM32)", "armeabi-v7a" in m.abis)
             assertTrue("${m.id} deve declarar arm64-v8a", "arm64-v8a" in m.abis)
+            if (!isHeavy(m)) assertTrue("${m.id} deve declarar armeabi-v7a (Android TV ARM32)", "armeabi-v7a" in m.abis)
         }
     }
 
@@ -40,27 +43,18 @@ class BundledCoresTest {
     }
 
     @Test
-    fun heavyEmulatorsAreNotActive() {
-        val manifests = PluginLoader.load(pluginsDir).manifests
-        val heavy = listOf("flycast", "pcsx2", "ppsspp", "melonds")
-        for (m in manifests) {
-            for (h in heavy) {
-                assertTrue("${m.id} é pesado/incompatível com ARM32 e não deve estar ativo", h !in m.id.lowercase())
-                assertTrue("${m.id}: coreLib pesado", h !in (m.coreLib ?: "").lowercase())
-                assertTrue("${m.id}: pacote pesado", h !in (m.packageName ?: "").lowercase())
-            }
-        }
-        val text = script.readText()
-        for (h in heavy) {
-            assertTrue("fetch_cores.sh não deve baixar $h", !Regex("""(?m)^\s*$h\b""").containsMatchIn(text))
-        }
+    fun heavyCoresAreArm64Only() {
+        val natives = PluginLoader.load(pluginsDir).manifests.filter { it.type == PluginType.NATIVE_CORE }
+        val heavy = natives.filter { isHeavy(it) }
+        assertEquals("cores pesados esperados", heavyCores.sorted(), heavy.map { it.coreLib!!.removePrefix("lib").removeSuffix("_libretro_android.so") }.sorted())
+        for (m in heavy) assertEquals("${m.id} não pode ir para a TV ARM32", listOf("arm64-v8a"), m.abis)
     }
 
     @Test
     fun lightPlatformsAreCoveredByNativeCores() {
         val natives = PluginLoader.load(pluginsDir).manifests.filter { it.type == PluginType.NATIVE_CORE }
         val covered = natives.flatMap { it.platforms }.toSet()
-        for (p in listOf("nes", "snes", "gb", "gba", "md", "n64")) {
+        for (p in listOf("nes", "snes", "gb", "gba", "md", "n64", "ps1", "psp", "nds", "dreamcast", "ps2")) {
             assertTrue("sem core nativo para $p", p in covered)
         }
     }

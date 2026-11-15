@@ -45,9 +45,9 @@ O Lemuroid (app externo) também é aceito como alternativa para os consoles aci
 
 ### Android TV ARM 32 bits (armeabi-v7a)
 
-O APK é universal: leva os mesmos cores para `armeabi-v7a` (ARM 32 bits, como a Philips Android TV 11) e para `arm64-v8a`. O script `scripts/fetch_cores.sh` confere o cabeçalho ELF de cada `.so` baixado (classe e arquitetura) e o workflow repete essa conferência dentro do APK final; um `.so` com a arquitetura errada derruba o build. No aparelho, o app também lê o cabeçalho do `.so` empacotado antes de dizer que um core está pronto ou incompatível.
+O APK é universal: leva os cores leves (NES, SNES, GB, GBA, Mega Drive, PS1 e N64) para `armeabi-v7a` (ARM 32 bits, como a Philips Android TV 11) e para `arm64-v8a`. O script `scripts/fetch_cores.sh` confere o cabeçalho ELF de cada `.so` baixado (classe e arquitetura) e o workflow repete essa conferência dentro do APK final; um `.so` com a arquitetura errada derruba o build. No aparelho, o app também lê o cabeçalho do `.so` empacotado antes de dizer que um core está pronto ou incompatível.
 
-Flycast (Dreamcast), melonDS (Nintendo DS), PPSSPP (PSP) e PCSX2 (PlayStation 2) são pesados demais para esse hardware e saíram da configuração ativa. Seus manifestos estão guardados em `docs/plugins-desativados/` e nada da sua biblioteca, saves ou BIOS é apagado.
+Flycast (Dreamcast), melonDS (Nintendo DS), PPSSPP (PSP) e PCSX2 (PlayStation 2) são pesados demais para a TV ARM32: vão só na pasta `arm64-v8a` (celular) e o workflow derruba o build se algum aparecer em `armeabi-v7a`.
 
 Você pode ativar ou desativar cada emulador em **Configurações → Emuladores e plugins**.
 

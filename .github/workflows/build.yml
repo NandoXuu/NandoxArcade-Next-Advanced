@@ -76,10 +76,12 @@ jobs:
             fi
           done
 
-          # emuladores pesados não podem voltar ao APK
+          # pesados só no celular (arm64-v8a); a TV ARM32 não pode receber nenhum
           for heavy in flycast pcsx2 ppsspp melonds; do
-            if grep -qi "lib${heavy}_libretro" apk-list.txt; then echo "ERRO: core pesado no APK: $heavy"; bad=1; fi
+            grep -qi "lib/arm64-v8a/lib${heavy}_libretro" apk-list.txt || { echo "ERRO: falta core pesado no ARM64: $heavy"; bad=1; }
+            if grep -qi "lib/armeabi-v7a/lib${heavy}_libretro" apk-list.txt; then echo "ERRO: core pesado na pasta ARM32: $heavy"; bad=1; fi
           done
+          grep -q 'assets/system/PPSSPP.zip' apk-list.txt || { echo "ERRO: falta PPSSPP.zip"; bad=1; }
 
           ls -lh "$apk"
           [ "$bad" -eq 0 ]
@@ -107,6 +109,8 @@ jobs:
 
             **Instalação:** baixe o arquivo `NDXEMULATOR-${{ github.ref_name }}.apk` abaixo e instale no Android (é preciso permitir instalação de fontes desconhecidas).
 
-            **Android TV ARM32 (armeabi-v7a) e ARM64:** NES, SNES, Game Boy/Color, GBA, Mega Drive, PlayStation e Nintendo 64 rodam com cores nativos dentro do app. PlayStation precisa da BIOS do console em `Android/data/com.nandox.arcade/files/system`.
+            **Android TV ARM32 (armeabi-v7a) e ARM64:** NES, SNES, Game Boy/Color, GBA, Mega Drive, PlayStation e Nintendo 64 rodam com cores nativos dentro do app.
+
+            **Celular ARM64 (arm64-v8a):** além dos acima, PSP, Nintendo DS, Dreamcast e PS2 rodam com cores nativos. PlayStation e PS2 precisam da BIOS do console em `Android/data/com.nandox.arcade/files/system`.
 
             **Backup:** escolha um destino de backup fora do app em Dados salvos, para não perder saves ao desinstalar.
