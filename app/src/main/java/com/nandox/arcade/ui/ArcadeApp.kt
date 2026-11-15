@@ -206,9 +206,11 @@ fun ArcadeApp(controls: ControlsController) {
                     onPlugins = { nav.navigate("plugins") },
                     onSources = { nav.navigate("sources") },
                     onSaves = { nav.navigate("save-files") },
+                    onAudio = { nav.navigate("audio-settings") },
                     onBack = { nav.popBackStack() },
                 )
             }
+            composable("audio-settings") { AudioSettingsScreen(onBack = { nav.popBackStack() }) }
             composable("controls") { ControlsScreen(controls) }
         }
     }

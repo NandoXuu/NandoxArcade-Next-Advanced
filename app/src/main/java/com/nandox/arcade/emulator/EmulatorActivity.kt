@@ -25,6 +25,14 @@ import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import androidx.lifecycle.lifecycleScope
+import com.nandox.arcade.audio.AudioCapabilityDetector
+import com.nandox.arcade.audio.AudioDiagnostics
+import com.nandox.arcade.audio.AudioHistoryStore
+import com.nandox.arcade.audio.AudioPlan
+import com.nandox.arcade.audio.AudioPlanner
+import com.nandox.arcade.audio.AudioSession
+import com.nandox.arcade.audio.AudioSettings
+import com.nandox.arcade.audio.AudioSettingsStore
 import com.nandox.arcade.ui.ArcadeTheme
 import com.swordfish.libretrodroid.GLRetroView
 import com.swordfish.libretrodroid.GLRetroViewData
@@ -57,6 +65,11 @@ class EmulatorActivity : ComponentActivity() {
     private var shaderMode by mutableStateOf("default")
     private var padActive by mutableStateOf(false)
     private var frameSpeed by mutableStateOf(1)
+    private var audioSession: AudioSession? = null
+    private var audioPlan: AudioPlan? = null
+    private var audioSettings = AudioSettings()
+    private var audioDiagnostics by mutableStateOf<AudioDiagnostics?>(null)
+    private var audioOverlay by mutableStateOf<String?>(null)
     private val autoSaveHandler = Handler(Looper.getMainLooper())
     private val autoSaveBusy = java.util.concurrent.atomic.AtomicBoolean(false)
     private val autoSaveTick = object : Runnable {
@@ -73,6 +86,7 @@ class EmulatorActivity : ComponentActivity() {
      */
     private fun autoSaveInBackground() {
         if (!frameReady || retroView == null) return
+        if (audioPlan?.periodicAutosave == false) return
         if (!autoSaveBusy.compareAndSet(false, true)) return
         lifecycleScope.launch(Dispatchers.IO) {
             try {
@@ -153,6 +167,9 @@ class EmulatorActivity : ComponentActivity() {
                     onFrameSpeedChange = { changeSpeed(it) },
                     stateSlots = stateSlots,
                     platformId = intent.getStringExtra(EXTRA_PLATFORM).orEmpty(),
+                    audioOverlay = audioOverlay,
+                    audioDiagnostics = audioDiagnostics,
+                    onAudioSettingsChanged = { onAudioSettingsChanged() },
                 )
             }
         }
@@ -182,14 +199,23 @@ class EmulatorActivity : ComponentActivity() {
         val saves = File(baseDir(), "saves").apply { mkdirs() }
         val sram = File(saves, "$gameKey.srm").also { sramFile = it }
 
+        val platform = intent.getStringExtra(EXTRA_PLATFORM).orEmpty()
+        val caps = AudioCapabilityDetector.detect(this)
+        val settings = AudioSettingsStore.forContext(this).load(platform)
+        val baseline = AudioHistoryStore.forContext(this).load(platform)
+        val plan = AudioPlanner.resolve(settings, caps, platform, baseline)
+        audioSettings = settings
+        audioPlan = plan
+        applyDisplayHints(plan)
+
         val data = GLRetroViewData(this).apply {
             coreFilePath = lib.absolutePath
             gameFilePath = rom.absolutePath
             systemDirectory = systemDir().absolutePath
             savesDirectory = saves.absolutePath
-            // O modo de baixa latência usa um buffer de só 4 quadros de vídeo: em TV (saída HDMI) e CPU ARM32 que
-            // não segura velocidade total ele estoura e o som some ou picota. O modo padrão usa buffer de 8 quadros.
-            preferLowLatencyAudio = getSharedPreferences("emulator_display", MODE_PRIVATE).getBoolean("audioLowLatency", false)
+            // Baixa latência usa buffer de só 4 quadros: em TV/HDMI e CPU ARM32 que não segura velocidade total ele
+            // estoura e o som picota. O plano de áudio escolhe 4 ou 8 quadros conforme o modo, o console e o aparelho.
+            preferLowLatencyAudio = plan.lowLatencyStream
             skipDuplicateFrames = true
             if (sram.isFile) saveRAMState = runCatching { sram.readBytes() }.getOrNull()
             if (intent.getStringExtra(EXTRA_PLATFORM) == "n64") {
@@ -214,12 +240,29 @@ class EmulatorActivity : ComponentActivity() {
             "sharp" -> ShaderConfig.Sharp
             else -> ShaderConfig.Default
         }
+        val session = AudioSession(
+            context = this,
+            view = v,
+            platformId = platform,
+            gameKey = gameKey,
+            initialPlan = plan,
+            initialSettings = settings,
+            caps = caps,
+            baseline = baseline,
+            isAudioWanted = { audioEnabled },
+            onUpdate = { diag ->
+                audioDiagnostics = diag
+                audioOverlay = if (audioSettings.overlay) diag.overlayText() else null
+            },
+        )
+        audioSession = session
         lifecycle.addObserver(v)
         lifecycleScope.launch { v.getGLRetroErrors().collect { fail(errorText(it)) } }
         lifecycleScope.launch {
             v.getGLRetroEvents().collect {
                 if (it is GLRetroView.GLRetroEvents.FrameRendered) {
                     frameReady = true
+                    session.onFrame()
                     if (!pendingStateApplied) {
                         pendingStateApplied = true
                         // o valor setado antes da criação do core nativo pode não ter efeito; reaplica agora
@@ -227,6 +270,7 @@ class EmulatorActivity : ComponentActivity() {
                         PlayHistory.consumePendingState(this@EmulatorActivity)?.let { state ->
                             runCatching { v.unserializeState(state.readBytes()) }
                         }
+                        session.start()
                     }
                 }
             }
@@ -334,6 +378,7 @@ class EmulatorActivity : ComponentActivity() {
         lifecycleScope.launch {
             val bytes = withContext(Dispatchers.IO) { runCatching { file.readBytes() }.getOrNull() }
             val loaded = bytes?.let { runCatching { v.unserializeState(it) }.getOrDefault(false) } ?: false
+            if (loaded) audioSession?.resync("save carregado")
             Toast.makeText(this@EmulatorActivity, if (loaded) "Save carregado" else "Não foi possível carregar este save", Toast.LENGTH_LONG).show()
         }
     }
@@ -379,6 +424,7 @@ class EmulatorActivity : ComponentActivity() {
     override fun onResume() {
         super.onResume()
         autoSaveHandler.postDelayed(autoSaveTick, AUTO_SAVE_MS)
+        audioSession?.resync("jogo retomado")
     }
 
     override fun onPause() {
@@ -387,6 +433,7 @@ class EmulatorActivity : ComponentActivity() {
         // SRAM precisa ser lida antes de a thread GL ser pausada.
         saveSram()
         captureLastPlayed()
+        audioSession?.checkpoint()
         super.onPause()
     }
 
@@ -406,6 +453,26 @@ class EmulatorActivity : ComponentActivity() {
         }
     }
 
+    /** O painel de áudio mudou: relê os ajustes do console e aplica o que vale com o jogo aberto. */
+    private fun onAudioSettingsChanged() {
+        val platform = intent.getStringExtra(EXTRA_PLATFORM).orEmpty()
+        val caps = AudioCapabilityDetector.detect(this)
+        val settings = AudioSettingsStore.forContext(this).load(platform)
+        val plan = AudioPlanner.resolve(settings, caps, platform, AudioHistoryStore.forContext(this).load(platform))
+        audioSettings = settings
+        audioPlan = plan
+        applyDisplayHints(plan)
+        audioSession?.updateSettings(plan, settings)
+        if (!settings.overlay) audioOverlay = null
+    }
+
+    private fun applyDisplayHints(plan: AudioPlan) {
+        runCatching { window.setSustainedPerformanceMode(plan.sustainedPerformance) }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            runCatching { window.setPreferMinimalPostProcessing(plan.minimalPostProcessing) }
+        }
+    }
+
     private fun changeSpeed(speed: Int) {
         frameSpeed = speed
         retroView?.frameSpeed = speed
@@ -420,7 +487,10 @@ class EmulatorActivity : ComponentActivity() {
 
     override fun onDestroy() {
         super.onDestroy()
-        if (isFinishing) Process.killProcess(Process.myPid())
+        if (isFinishing) {
+            audioSession?.finish()
+            Process.killProcess(Process.myPid())
+        }
     }
 
     override fun onWindowFocusChanged(hasFocus: Boolean) {

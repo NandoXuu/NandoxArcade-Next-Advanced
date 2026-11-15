@@ -83,12 +83,16 @@ fun EmulatorScreen(
     onFrameSpeedChange: (Int) -> Unit,
     stateSlots: List<StateSlot>,
     platformId: String,
+    audioOverlay: String? = null,
+    audioDiagnostics: com.nandox.arcade.audio.AudioDiagnostics? = null,
+    onAudioSettingsChanged: () -> Unit = {},
 ) {
     val context = LocalContext.current
     val preferences = remember { context.getSharedPreferences("emulator_display", android.content.Context.MODE_PRIVATE) }
     var displayMode by remember { mutableStateOf(preferences.getString("mode", "original") ?: "original") }
     var controlScale by remember { mutableStateOf(preferences.getFloat("controlScale", 1f)) }
     var menu by remember { mutableStateOf(false) }
+    var showAudioPanel by remember { mutableStateOf(false) }
     var showStates by remember { mutableStateOf(false) }
     var showControls by remember { mutableStateOf(true) }
     var stickMode by remember { mutableStateOf(true) }
@@ -243,6 +247,39 @@ fun EmulatorScreen(
         }
     }
 
+    if (audioOverlay != null) {
+        Box(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.displayCutout)) {
+            Text(
+                audioOverlay,
+                color = Color.White,
+                fontSize = 11.sp,
+                fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
+                modifier = Modifier
+                    .align(Alignment.TopStart)
+                    .padding(8.dp)
+                    .background(Color(0x99000000))
+                    .padding(horizontal = 6.dp, vertical = 2.dp),
+            )
+        }
+    }
+
+    if (showAudioPanel) {
+        AlertDialog(
+            onDismissRequest = { showAudioPanel = false },
+            title = { Text("Áudio avançado") },
+            text = {
+                Column(Modifier.heightIn(max = 560.dp).verticalScroll(rememberScrollState())) {
+                    com.nandox.arcade.ui.AudioSettingsPanel(
+                        lockedPlatform = platformId,
+                        diagnostics = audioDiagnostics,
+                        onChanged = onAudioSettingsChanged,
+                    )
+                }
+            },
+            confirmButton = { TextButton(onClick = { showAudioPanel = false }) { Text("Fechar") } },
+        )
+    }
+
     if (menu) {
         AlertDialog(
             onDismissRequest = { menu = false },
@@ -253,6 +290,7 @@ fun EmulatorScreen(
                     Text("PROPORÇÃO DA TELA", color = androidx.compose.material3.MaterialTheme.colorScheme.primary)
                     Text("ÁUDIO")
                     Switch(checked = audioEnabled, onCheckedChange = onAudioChange)
+                    TextButton(onClick = { menu = false; showAudioPanel = true }) { Text("Áudio avançado…") }
                     Text("LIMITE / ATUALIZAÇÃO DA TELA")
                     Text("Solicitação de Hz ao Android (não força o FPS interno do core).", style = androidx.compose.material3.MaterialTheme.typography.bodySmall)
                     listOf(0 to "Automático", 30 to "30 Hz", 60 to "60 Hz", 90 to "90 Hz", 120 to "120 Hz").forEach { (value, label) ->
