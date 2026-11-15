@@ -58,12 +58,34 @@ class EmulatorActivity : ComponentActivity() {
     private var padActive by mutableStateOf(false)
     private var frameSpeed by mutableStateOf(1)
     private val autoSaveHandler = Handler(Looper.getMainLooper())
+    private val autoSaveBusy = java.util.concurrent.atomic.AtomicBoolean(false)
     private val autoSaveTick = object : Runnable {
         override fun run() {
-            autoSaveNow()
+            autoSaveInBackground()
             autoSaveHandler.postDelayed(this, AUTO_SAVE_MS)
         }
     }
+
+    /**
+     * O autosave periódico serializa e grava o estado (dezenas de MB no N64). Na thread principal isso
+     * congelava a imagem e esvaziava o buffer de áudio a cada minuto; por isso roda em segundo plano.
+     * O autosave de onPause continua síncrono, porque a thread GL é pausada logo em seguida.
+     */
+    private fun autoSaveInBackground() {
+        if (!frameReady || retroView == null) return
+        if (!autoSaveBusy.compareAndSet(false, true)) return
+        lifecycleScope.launch(Dispatchers.IO) {
+            try {
+                autoSaveNow()
+            } finally {
+                autoSaveBusy.set(false)
+            }
+        }
+    }
+
+    /** Resolução interna padrão do N64: leve em aparelhos 32 bits (ex.: Android TV ARM32), mais nítida em 64 bits. */
+    private fun defaultN64Res43(): String = if (Process.is64Bit()) "640x480" else "320x240"
+    private fun defaultN64Res169(): String = if (Process.is64Bit()) "1280x720" else "640x360"
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -111,8 +133,8 @@ class EmulatorActivity : ComponentActivity() {
                     shaderMode = shaderMode,
                     fpsLimit = getSharedPreferences("emulator_display", MODE_PRIVATE).getInt("fpsLimit", 0),
                     renderScale = getSharedPreferences("emulator_display", MODE_PRIVATE).getFloat("renderScale", 1f),
-                    n64Res43 = getSharedPreferences("emulator_display", MODE_PRIVATE).getString("n64Res43", "640x480") ?: "640x480",
-                    n64Res169 = getSharedPreferences("emulator_display", MODE_PRIVATE).getString("n64Res169", "1280x720") ?: "1280x720",
+                    n64Res43 = getSharedPreferences("emulator_display", MODE_PRIVATE).getString("n64Res43", defaultN64Res43()) ?: defaultN64Res43(),
+                    n64Res169 = getSharedPreferences("emulator_display", MODE_PRIVATE).getString("n64Res169", defaultN64Res169()) ?: defaultN64Res169(),
                     n64Aspect = getSharedPreferences("emulator_display", MODE_PRIVATE).getString("n64Aspect", "4:3") ?: "4:3",
                     onN64ResolutionChange = { aspect, resolution ->
                         getSharedPreferences("emulator_display", MODE_PRIVATE).edit()
@@ -165,12 +187,16 @@ class EmulatorActivity : ComponentActivity() {
             gameFilePath = rom.absolutePath
             systemDirectory = systemDir().absolutePath
             savesDirectory = saves.absolutePath
+            // O modo de baixa latência usa um buffer de só 4 quadros de vídeo: em TV (saída HDMI) e CPU ARM32 que
+            // não segura velocidade total ele estoura e o som some ou picota. O modo padrão usa buffer de 8 quadros.
+            preferLowLatencyAudio = getSharedPreferences("emulator_display", MODE_PRIVATE).getBoolean("audioLowLatency", false)
+            skipDuplicateFrames = true
             if (sram.isFile) saveRAMState = runCatching { sram.readBytes() }.getOrNull()
             if (intent.getStringExtra(EXTRA_PLATFORM) == "n64") {
                 val prefs = getSharedPreferences("emulator_display", MODE_PRIVATE)
                 variables = arrayOf(
-                    Variable("mupen64plus-43screensize", prefs.getString("n64Res43", "640x480")),
-                    Variable("mupen64plus-169screensize", prefs.getString("n64Res169", "1280x720")),
+                    Variable("mupen64plus-43screensize", prefs.getString("n64Res43", defaultN64Res43())),
+                    Variable("mupen64plus-169screensize", prefs.getString("n64Res169", defaultN64Res169())),
                     Variable("mupen64plus-aspect", prefs.getString("n64Aspect", "4:3")),
                 )
             }
@@ -196,6 +222,8 @@ class EmulatorActivity : ComponentActivity() {
                     frameReady = true
                     if (!pendingStateApplied) {
                         pendingStateApplied = true
+                        // o valor setado antes da criação do core nativo pode não ter efeito; reaplica agora
+                        v.audioEnabled = audioEnabled
                         PlayHistory.consumePendingState(this@EmulatorActivity)?.let { state ->
                             runCatching { v.unserializeState(state.readBytes()) }
                         }
@@ -362,6 +390,7 @@ class EmulatorActivity : ComponentActivity() {
         super.onPause()
     }
 
+    @Synchronized
     private fun autoSaveNow() {
         val v = retroView ?: return
         if (!frameReady) return
