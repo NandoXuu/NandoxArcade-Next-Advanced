@@ -1,0 +1,12 @@
+{
+  "id": "dolphin",
+  "name": "Dolphin",
+  "version": "1",
+  "type": "external_app",
+  "platforms": [
+    "gamecube",
+    "wii"
+  ],
+  "packageName": "org.dolphinemu.dolphinemu",
+  "validated": false
+}

@@ -1,0 +1,11 @@
+{
+  "id": "melonds",
+  "name": "melonDS",
+  "version": "1",
+  "type": "external_app",
+  "platforms": [
+    "nds"
+  ],
+  "packageName": "me.magnum.melonds",
+  "validated": false
+}

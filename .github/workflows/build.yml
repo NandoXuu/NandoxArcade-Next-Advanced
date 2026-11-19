@@ -1,0 +1,116 @@
+name: Build APK
+
+on:
+  push:
+    branches: [main, "feat/**"]
+    tags: ["v*"]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      # Cores libretro pré-compilados (nada é compilado aqui). Cache renovado toda semana
+      # para pegar o nightly novo sem baixar ~50 MB a cada commit.
+      - name: Semana (chave do cache dos cores)
+        id: week
+        run: echo "week=$(date +%G-%V)" >> "$GITHUB_OUTPUT"
+
+      - name: Cache dos cores libretro
+        uses: actions/cache@v4
+        with:
+          path: |
+            app/src/main/jniLibs
+          key: libretro-cores-${{ hashFiles('scripts/fetch_cores.sh') }}-${{ steps.week.outputs.week }}
+
+      - name: Baixar cores libretro
+        run: bash scripts/fetch_cores.sh
+
+      - run: chmod +x gradlew
+      - run: ./gradlew testDebugUnitTest assembleDebug --no-daemon
+
+      - name: Conferir cores ARM32 e ARM64 no APK
+        run: |
+          apk=app/build/outputs/apk/debug/app-debug.apk
+          unzip -l "$apk" > apk-list.txt
+          bad=0
+
+          # runtime do LibretroDroid e cores leves presentes nas duas ABIs
+          for abi in armeabi-v7a arm64-v8a; do
+            grep -q "lib/$abi/liblibretrodroid.so" apk-list.txt || { echo "Falta liblibretrodroid.so em $abi"; bad=1; }
+            n=$(grep -cE "lib/$abi/lib.*_libretro_android\.so" apk-list.txt || true)
+            echo "$abi: $n cores"
+            [ "$n" -ge 6 ] || { echo "Faltam cores $abi no APK (mínimo 6)"; bad=1; }
+          done
+
+          # o .so precisa ser da arquitetura da pasta (nome de pasta não prova nada)
+          rm -rf apkcheck && mkdir apkcheck
+          unzip -q "$apk" 'lib/*' -d apkcheck
+          for f in apkcheck/lib/armeabi-v7a/*.so; do
+            h="$(readelf -h "$f")"
+            if grep -q 'Class:.*ELF32' <<<"$h" && grep -qE 'Machine:[[:space:]]+ARM$' <<<"$h"; then
+              echo "ARM32 ok: $(basename "$f")"
+            else
+              echo "ERRO: NÃO é ARM 32 bits: $f"; bad=1
+            fi
+          done
+          for f in apkcheck/lib/arm64-v8a/*.so; do
+            h="$(readelf -h "$f")"
+            if grep -q 'Class:.*ELF64' <<<"$h" && grep -q 'AArch64' <<<"$h"; then
+              echo "ARM64 ok: $(basename "$f")"
+            else
+              echo "ERRO: NÃO é ARM 64 bits: $f"; bad=1
+            fi
+          done
+
+          # pesados só no celular (arm64-v8a); a TV ARM32 não pode receber nenhum
+          for heavy in flycast pcsx2 ppsspp melonds; do
+            grep -qi "lib/arm64-v8a/lib${heavy}_libretro" apk-list.txt || { echo "ERRO: falta core pesado no ARM64: $heavy"; bad=1; }
+            if grep -qi "lib/armeabi-v7a/lib${heavy}_libretro" apk-list.txt; then echo "ERRO: core pesado na pasta ARM32: $heavy"; bad=1; fi
+          done
+          grep -q 'assets/system/PPSSPP.zip' apk-list.txt || { echo "ERRO: falta PPSSPP.zip"; bad=1; }
+
+          ls -lh "$apk"
+          [ "$bad" -eq 0 ]
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: nandox-arcade-debug
+          path: app/build/outputs/apk/debug/app-debug.apk
+
+      - name: Nomear APK da release
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: cp app/build/outputs/apk/debug/app-debug.apk "NDXEMULATOR-${GITHUB_REF_NAME}.apk"
+
+      - name: Publicar release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          name: NDXEMULATOR ${{ github.ref_name }}
+          files: NDXEMULATOR-${{ github.ref_name }}.apk
+          generate_release_notes: true
+          body: |
+            ## NDXEMULATOR ${{ github.ref_name }}
+
+            Emulador de jogos retrô para Android, com biblioteca, saves automáticos, controle físico e velocidade 1×, 2× e 4×.
+
+            **Instalação:** baixe o arquivo `NDXEMULATOR-${{ github.ref_name }}.apk` abaixo e instale no Android (é preciso permitir instalação de fontes desconhecidas).
+
+            **Android TV ARM32 (armeabi-v7a) e ARM64:** NES, SNES, Game Boy/Color, GBA, Mega Drive, PlayStation e Nintendo 64 rodam com cores nativos dentro do app.
+
+            **Celular ARM64 (arm64-v8a):** além dos acima, PSP, Nintendo DS, Dreamcast e PS2 rodam com cores nativos. PlayStation e PS2 precisam da BIOS do console em `Android/data/com.nandox.arcade/files/system`.
+
+            **Backup:** escolha um destino de backup fora do app em Dados salvos, para não perder saves ao desinstalar.

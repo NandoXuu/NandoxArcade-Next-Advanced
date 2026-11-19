@@ -1,0 +1,17 @@
+{
+  "id": "lemuroid",
+  "name": "Lemuroid",
+  "version": "1",
+  "type": "external_app",
+  "platforms": [
+    "nes",
+    "snes",
+    "gb",
+    "gba",
+    "md",
+    "ps1",
+    "n64"
+  ],
+  "packageName": "com.swordfish.lemuroid",
+  "validated": false
+}
