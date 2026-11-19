@@ -4,26 +4,20 @@ import android.content.Intent
 import android.net.Uri
 import android.provider.OpenableColumns
 import android.widget.Toast
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.background
+import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.material3.Button
-import androidx.compose.material3.Card
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -36,10 +30,18 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.em
+import androidx.compose.ui.unit.sp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
@@ -55,11 +57,15 @@ import com.nandox.arcade.scanner.GameScanner
 import com.nandox.arcade.scanner.SourceChecker
 import com.nandox.arcade.scanner.SourceStatus
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+
+const val LIB_ALL = "_all"
+const val LIB_RECENT = "_recent"
 
 @Composable
 fun LibraryScreen(
@@ -90,6 +96,12 @@ fun LibraryScreen(
     LaunchedEffect(sources) {
         statuses = withContext(Dispatchers.IO) {
             sources.associate { it.id to SourceChecker.status(context, Uri.parse(it.uri)) }
+        }
+    }
+    LaunchedEffect(message) {
+        if (message != null) {
+            delay(2600)
+            message = null
         }
     }
 
@@ -154,87 +166,186 @@ fun LibraryScreen(
     }
 
     val platform = Platforms.byId(platformId)
-    val filtered = games.filter { it.platformId == platformId }
-    val unknownCount = games.count { it.platformId == PlatformClassifier.UNKNOWN }
     val history = remember(refresh, games) { PlayHistory.all(context).associateBy { it.key } }
+    val filtered = remember(games, platformId, history) {
+        when (platformId) {
+            LIB_ALL -> games
+            LIB_RECENT -> games
+                .mapNotNull { g ->
+                    val played = history[RomStager.keyFor(Uri.parse(g.uri))]?.lastPlayed ?: 0L
+                    if (played > 0L) g to played else null
+                }
+                .sortedByDescending { it.second }
+                .map { it.first }
+            else -> games.filter { it.platformId == platformId }
+        }
+    }
+    val unknownCount = games.count { it.platformId == PlatformClassifier.UNKNOWN }
+    val title = platform?.name ?: when (platformId) {
+        LIB_ALL -> "Biblioteca"
+        LIB_RECENT -> "Recentes"
+        else -> "Não classificados"
+    }
 
-    Column(Modifier.fillMaxSize().padding(horizontal = 16.dp, vertical = 8.dp)) {
-        ScreenHeader(
-            title = platform?.name ?: "Não classificados",
-            subtitle = "${filtered.size} jogo(s) · ${sources.size} pasta(s)",
-            onBack = onBack,
-            trailing = {
-                if (platform != null) PlatformIcon(platform.id, Modifier.size(44.dp))
-            },
-        )
-        Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            OutlinedButton(onClick = { importer.launch(arrayOf("*/*")) }) { Text("Importar jogo ou ZIP/7z") }
-            OutlinedButton(onClick = onSources) { Text("Pastas") }
-            Button(onClick = { scanAll() }, enabled = sources.isNotEmpty() && !scanning) {
-                Text(if (scanning) "Escaneando…" else "Escanear")
-            }
-        }
-        message?.let { Text(it, style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(top = 6.dp)) }
-        if (unknownCount > 0 && platform != null) {
-            Text(
-                "$unknownCount jogo(s) sem plataforma definida",
-                color = MaterialTheme.colorScheme.primary,
-                style = MaterialTheme.typography.bodySmall,
-                modifier = Modifier.padding(top = 6.dp).clickable(onClick = onOpenUnknown),
-            )
-        }
-        Spacer(Modifier.height(10.dp))
-        if (filtered.isEmpty()) {
-            Text(
-                "Nenhum jogo aqui. Importe um arquivo (inclusive ZIP ou 7z) ou adicione uma pasta e escaneie.",
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
+    val wheel = rememberWheelState(0)
+    val active = filtered.getOrNull(wheel.index)
+    val focus = remember { FocusRequester() }
+    LaunchedEffect(Unit) { runCatching { focus.requestFocus() } }
+
+    fun available(g: GameEntity) = statuses[g.sourceId]?.let { it == SourceStatus.AVAILABLE } ?: true
+
+    fun activate(g: GameEntity) {
+        if (!available(g)) {
+            Toast.makeText(context, "Pasta indisponível. Conecte o armazenamento.", Toast.LENGTH_LONG).show()
         } else {
-            LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                items(filtered, key = { it.id }) { g ->
-                    val available = statuses[g.sourceId]?.let { it == SourceStatus.AVAILABLE } ?: true
-                    val gameKey = remember(g.uri) { RomStager.keyFor(Uri.parse(g.uri)) }
-                    val played = history[gameKey]?.lastPlayed ?: 0L
-                    Card(
-                        modifier = Modifier.fillMaxWidth().clip(MaterialTheme.shapes.medium).clickable {
-                            if (!available) {
-                                Toast.makeText(context, "Pasta indisponível. Conecte o armazenamento.", Toast.LENGTH_LONG).show()
-                            } else {
-                                onOpenGame(g.id)
-                            }
-                        },
-                        colors = arcadeCardColors(),
-                    ) {
-                        Row(
-                            Modifier.padding(10.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(12.dp),
-                        ) {
-                            FileThumb(
-                                file = PlayHistory.thumbnail(context, gameKey),
-                                modifier = Modifier.size(104.dp, 60.dp).clip(MaterialTheme.shapes.small),
-                            ) {
-                                PlatformIcon(g.platformId, Modifier.size(104.dp, 60.dp).padding(8.dp))
-                            }
-                            Column(Modifier.weight(1f)) {
-                                Text(
-                                    if (available) g.title else "${g.title} · indisponível",
-                                    style = MaterialTheme.typography.titleSmall,
-                                    maxLines = 2,
-                                    overflow = TextOverflow.Ellipsis,
-                                )
-                                if (played > 0L) {
-                                    Text(
-                                        "Última partida · " + SimpleDateFormat("dd/MM/yyyy HH:mm", Locale.getDefault()).format(Date(played)),
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    )
-                                }
-                            }
-                        }
+            onOpenGame(g.id)
+        }
+    }
+
+    BackHandler(onBack = onBack)
+
+    Box(
+        Modifier
+            .fillMaxSize()
+            .wheelKeys(wheel, onSelect = { active?.let(::activate) }, onBack = onBack)
+            .focusRequester(focus)
+            .focusable(),
+    ) {
+        ConsoleBackdrop(active?.platformId ?: platform?.id)
+        Column(Modifier.fillMaxSize()) {
+            ConsoleTopBar(title = title, leading = Glyph.BACK, onLeading = onBack) {
+                Text(
+                    "${filtered.size} jogo(s) · ${sources.size} pasta(s)",
+                    fontSize = 13.sp,
+                    color = Color(0xFFEEEEEE),
+                    maxLines = 1,
+                )
+            }
+
+            if (filtered.isEmpty()) {
+                Box(Modifier.weight(1f).fillMaxWidth().padding(horizontal = 32.dp), contentAlignment = Alignment.Center) {
+                    CenterText(
+                        "Nenhum jogo aqui. Importe um arquivo (inclusive ZIP ou 7z) ou adicione uma pasta e escaneie.",
+                        size = 14,
+                    )
+                }
+            } else {
+                Wheel(
+                    items = filtered,
+                    state = wheel,
+                    onActivate = ::activate,
+                    modifier = Modifier.weight(1f).fillMaxWidth(),
+                ) { game, index, focusOf ->
+                    GameFace(game, index, filtered.size, available(game), focusOf)
+                }
+            }
+
+            WheelInfo(message ?: active?.id) {
+                val msg = message
+                val game = filtered.firstOrNull { g -> g.id == it }
+                if (msg != null) {
+                    Text(msg, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = Color(0xFFC9B8FF))
+                } else if (game != null) {
+                    val played = history[RomStager.keyFor(Uri.parse(game.uri))]?.lastPlayed ?: 0L
+                    Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.padding(horizontal = 24.dp)) {
+                        Text(
+                            if (available(game)) game.title else "${game.title} · indisponível",
+                            fontSize = 18.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            textAlign = TextAlign.Center,
+                        )
+                        Text(
+                            (Platforms.byId(game.platformId)?.name ?: game.platformId) +
+                                if (played > 0L) " · Última partida " + SimpleDateFormat("dd/MM/yyyy HH:mm", Locale.getDefault()).format(Date(played)) else "",
+                            fontSize = 12.sp,
+                            color = Color(0xFFA4A5AD),
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
                     }
                 }
             }
+
+            ConsoleBottom(
+                start = {
+                    HintBar(
+                        listOf(
+                            Hint(null, Glyph.MOVE, "Navegar") { wheel.move(1) },
+                            Hint("A", null, "Jogar") { active?.let(::activate) },
+                            Hint("B", null, "Voltar", onBack),
+                        ),
+                    )
+                },
+                end = {
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        ActionChip("Importar") { importer.launch(arrayOf("*/*")) }
+                        ActionChip("Pastas", onClick = onSources)
+                        ActionChip(
+                            if (scanning) "Escaneando…" else "Escanear",
+                            enabled = sources.isNotEmpty() && !scanning,
+                            accent = true,
+                        ) { scanAll() }
+                        if (unknownCount > 0 && platform != null) {
+                            ActionChip("$unknownCount sem plataforma", onClick = onOpenUnknown)
+                        }
+                    }
+                },
+            )
+        }
+    }
+}
+
+@Composable
+private fun BoxScope.GameFace(
+    game: GameEntity,
+    index: Int,
+    total: Int,
+    available: Boolean,
+    focus: () -> Float,
+) {
+    val context = LocalContext.current
+    val key = remember(game.uri) { RomStager.keyFor(Uri.parse(game.uri)) }
+    val thumb = remember(key) { PlayHistory.thumbnail(context, key) }
+    val hue = remember(game.title) { Math.floorMod(game.title.hashCode(), 360).toFloat() }
+    Box(
+        Modifier.fillMaxSize().background(
+            Brush.linearGradient(listOf(Color.hsv(hue, 0.42f, 0.46f), Color(0xFF11131C))),
+        ),
+    )
+    FileThumb(thumb, Modifier.fillMaxSize()) {
+        Box(Modifier.fillMaxSize().padding(24.dp), contentAlignment = Alignment.Center) {
+            Text(
+                game.title,
+                fontSize = 24.sp,
+                fontWeight = FontWeight.ExtraBold,
+                letterSpacing = (-0.04).em,
+                lineHeight = 26.sp,
+                textAlign = TextAlign.Center,
+                maxLines = 4,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+    }
+    Box(
+        Modifier.fillMaxSize().background(
+            Brush.verticalGradient(0.55f to Color.Transparent, 1f to Color(0xCC000000)),
+        ),
+    )
+    Text(
+        "%02d / %02d".format(index + 1, total),
+        Modifier.align(Alignment.TopStart).padding(start = 20.dp, top = 18.dp),
+        fontSize = 10.sp,
+        fontWeight = FontWeight.SemiBold,
+        letterSpacing = 0.16.em,
+        color = Color(0x80FFFFFF),
+    )
+    PlatformIcon(game.platformId, Modifier.align(Alignment.BottomStart).padding(start = 18.dp, bottom = 18.dp).size(52.dp, 30.dp))
+    PlayMark(Modifier.align(Alignment.BottomEnd).padding(end = 16.dp, bottom = 16.dp).graphicsLayer { alpha = focus() })
+    if (!available) {
+        Box(Modifier.fillMaxSize().background(Color(0x99000000)), contentAlignment = Alignment.Center) {
+            Text("INDISPONÍVEL", fontSize = 11.sp, letterSpacing = 0.2.em, fontWeight = FontWeight.Bold)
         }
     }
 }
