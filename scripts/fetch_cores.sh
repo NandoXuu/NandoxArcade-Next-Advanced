@@ -1,159 +1,122 @@
 #!/usr/bin/env bash
-# Baixa os cores libretro para armeabi-v7a (ARM 32 bits, ex.: Philips Android TV 11) e arm64-v8a.
-# Os cores leves (NES, SNES, GB, GBA, Mega Drive, PS1, N64) vão nas duas ABIs. Os pesados (PSP, DS,
-# Dreamcast, PS2) vão só em arm64-v8a (celular): a TV ARM32 não os extrai nem os carrega.
-# O APK universal sai instalável em TVs/boxes ARMv7 e ARM64.
+# Baixa os cores libretro pré-compilados (binários oficiais do buildbot da Libretro) para o APK.
+# Nada é compilado aqui. Usado no Termux e no GitHub Actions.
 #
-# Cada .so baixado tem o cabeçalho ELF conferido (classe e arquitetura): o nome da pasta do servidor
-# não prova nada. Um arquivo 64 bits dentro da pasta armeabi-v7a (ou o contrário) é descartado e o
-# build falha, em vez de gerar um APK que só mostra "ABI incompatível" na TV.
+# ABIs:
+#   armeabi-v7a  OBRIGATÓRIA. É a ARM de 32 bits das Android TVs (ex.: Philips 50PUG7406/78).
+#   arm64-v8a    opcional (celulares e TVs de 64 bits); se faltar, só avisa.
 #
+# Cada binário baixado é conferido pelo cabeçalho ELF (readelf -h): "armeabi-v7a" precisa ser
+# ELF32/ARM e "arm64-v8a" precisa ser ELF64/AArch64. O nome do arquivo ou da URL não prova nada.
+#
+# Os cores vão para app/src/main/jniLibs/<abi>/ com o prefixo "lib" exigido pelo Android
+# (libmgba_libretro_android.so, ...). Os nomes precisam bater com "coreLib" em
+# assets/plugins/core_*.json (há um teste unitário que verifica isso).
+#
+# Uso:  bash scripts/fetch_cores.sh          # só baixa o que falta
+#       FORCE=1 bash scripts/fetch_cores.sh  # baixa tudo de novo
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 BASE="https://buildbot.libretro.com/nightly/android/latest"
 
-# Obrigatórios nas duas ABIs: se faltar ou for inválido, o build falha.
-REQUIRED_CORES=(
-  fceumm
-  snes9x2010
-  gambatte
-  mgba
-  genesis_plus_gx
-  pcsx_rearmed
-)
+REQUIRED_ABIS=(armeabi-v7a)
+OPTIONAL_ABIS=(arm64-v8a)
 
-# Opcionais: se não houver um .so válido para a ABI, só avisa (esse console fica sem core).
-OPTIONAL_CORES=(
-  mupen64plus_next_gles3
-)
-
-# Pesados: só arm64-v8a (celular). Obrigatórios nessa ABI.
-HEAVY_ARM64_CORES=(
-  ppsspp
-  melonds
-  flycast
-  pcsx2
+# nome do core no buildbot (sem _libretro_android.so)
+CORES=(
+  fceumm                    # Nintendo NES
+  quicknes                  # Nintendo NES (alternativa)
+  snes9x                    # Super Nintendo
+  gambatte                  # Game Boy / Game Boy Color
+  gearboy                   # Game Boy / Game Boy Color (alternativa)
+  mgba                      # Game Boy Advance
+  gpsp                      # Game Boy Advance (alternativa leve)
+  genesis_plus_gx           # Mega Drive / Genesis
+  picodrive                 # Mega Drive / Genesis (alternativa)
+  pcsx_rearmed              # PlayStation
+  mupen64plus_next_gles3    # Nintendo 64 (precisa de OpenGL ES 3.0)
+  mupen64plus_next_gles2    # Nintendo 64 (alternativa)
 )
 
 tmp="$(mktemp -d)"
 trap 'rm -rf "$tmp"' EXIT
 
-# Arquitetura real do .so, lida do cabeçalho ELF: arm32 | arm64 | other | notelf
-elf_arch() {
-  local hex cls mach
-  hex="$(od -An -tx1 -N20 "$1" | tr -d ' \n')"
-  [[ "${hex:0:8}" == "7f454c46" ]] || { echo notelf; return; }  # magic \x7fELF
-  cls="${hex:8:2}"      # 01 = 32 bits, 02 = 64 bits
-  mach="${hex:36:4}"    # e_machine (little endian): 2800 = ARM, b700 = AArch64
-  if [[ "$cls" == "01" && "$mach" == "2800" ]]; then echo arm32
-  elif [[ "$cls" == "02" && "$mach" == "b700" ]]; then echo arm64
-  else echo other
+# Confere a arquitetura REAL do binário pelo cabeçalho ELF.
+verify_elf() { # $1 = arquivo, $2 = abi
+  local info
+  if command -v readelf >/dev/null 2>&1; then
+    info="$(readelf -h "$1" 2>/dev/null)" || return 1
+    case "$2" in
+      armeabi-v7a) grep -Eq 'Class:[[:space:]]+ELF32' <<<"$info" && grep -Eq 'Machine:[[:space:]]+ARM$' <<<"$info" ;;
+      arm64-v8a)   grep -Eq 'Class:[[:space:]]+ELF64' <<<"$info" && grep -Eq 'Machine:[[:space:]]+AArch64' <<<"$info" ;;
+      *) return 1 ;;
+    esac
+  elif command -v file >/dev/null 2>&1; then
+    info="$(file -b "$1")"
+    case "$2" in
+      armeabi-v7a) grep -Eq 'ELF 32-bit LSB.*ARM' <<<"$info" ;;
+      arm64-v8a)   grep -Eq 'ELF 64-bit LSB.*ARM aarch64' <<<"$info" ;;
+      *) return 1 ;;
+    esac
+  else
+    echo "ERRO: instale readelf (binutils) ou file para conferir os binários" >&2
+    return 1
   fi
 }
 
-want_arch() {
-  case "$1" in
-    armeabi-v7a) echo arm32 ;;
-    arm64-v8a) echo arm64 ;;
-    *) echo "ABI desconhecida: $1" >&2; return 1 ;;
-  esac
-}
-
-# fetch_one <abi> <core>  ->  0 = .so válido no lugar; 1 = falhou
-fetch_one() {
-  local abi="$1" core="$2" want out zip dir cand got
-  want="$(want_arch "$abi")"
-  out="$ROOT/app/src/main/jniLibs/$abi/lib${core}_libretro_android.so"
-
-  if [[ -s "$out" && "${FORCE:-0}" != "1" && "$(elf_arch "$out")" == "$want" ]]; then
-    echo "ok ($abi, $want) $core"
+fetch() { # $1 = core, $2 = abi ; devolve 0 se o binário ficou correto em jniLibs
+  local core="$1" abi="$2"
+  local jni="$ROOT/app/src/main/jniLibs/$abi"
+  local out="$jni/lib${core}_libretro_android.so"
+  mkdir -p "$jni"
+  if [[ -s "$out" && "${FORCE:-0}" != "1" ]] && verify_elf "$out" "$abi"; then
+    echo "ok       ($abi) $core"
     return 0
   fi
   rm -f "$out"
-
-  zip="$tmp/$core-$abi.zip"
-  dir="$tmp/$abi-$core"
-  mkdir -p "$dir"
-  if curl -fL --retry 3 --retry-delay 2 -sS -o "$zip" "$BASE/$abi/${core}_libretro_android.so.zip" \
-    && unzip -oq "$zip" -d "$dir"; then
-    cand="$dir/${core}_libretro_android.so"
-    if [[ -s "$cand" ]]; then
-      got="$(elf_arch "$cand")"
-      if [[ "$got" == "$want" ]]; then
-        mv "$cand" "$out"
-        echo "baixado ($abi, $got) $core"
-        return 0
-      fi
-      echo "descartado ($abi) $core: o .so é '$got', esperado '$want'" >&2
-    fi
+  local url="$BASE/$abi/${core}_libretro_android.so.zip"
+  local work="$tmp/$abi/$core"
+  mkdir -p "$work"
+  if ! curl -fL --retry 3 --retry-delay 2 -sS -o "$work/core.zip" "$url"; then
+    echo "falhou   ($abi) $core  <- $url" >&2
+    return 1
   fi
-  return 1
+  if ! unzip -oq "$work/core.zip" -d "$work" || [[ ! -s "$work/${core}_libretro_android.so" ]]; then
+    echo "zip sem ${core}_libretro_android.so ($abi)" >&2
+    return 1
+  fi
+  if ! verify_elf "$work/${core}_libretro_android.so" "$abi"; then
+    echo "ERRO: $core ($abi) NÃO tem a arquitetura esperada (cabeçalho ELF)" >&2
+    return 1
+  fi
+  mv "$work/${core}_libretro_android.so" "$out"
+  echo "baixado  ($abi) $core ($(du -h "$out" | cut -f1))"
 }
 
-expected=()
-for core in "${REQUIRED_CORES[@]}" "${OPTIONAL_CORES[@]}"; do
-  expected+=("lib${core}_libretro_android.so")
-done
-expected_arm64=("${expected[@]}")
-for core in "${HEAVY_ARM64_CORES[@]}"; do
-  expected_arm64+=("lib${core}_libretro_android.so")
+for abi in "${REQUIRED_ABIS[@]}"; do
+  for core in "${CORES[@]}"; do
+    fetch "$core" "$abi" || { echo "ERRO: core obrigatório ausente/inválido: $core ($abi)" >&2; exit 1; }
+  done
 done
 
-failed=0
-for abi in armeabi-v7a arm64-v8a; do
-  JNI="$ROOT/app/src/main/jniLibs/$abi"
-  mkdir -p "$JNI"
-
-  for core in "${REQUIRED_CORES[@]}"; do
-    if ! fetch_one "$abi" "$core"; then
-      echo "ERRO: core obrigatório ausente/inválido: $core ($abi)" >&2
-      failed=1
-    fi
+for abi in "${OPTIONAL_ABIS[@]}"; do
+  for core in "${CORES[@]}"; do
+    fetch "$core" "$abi" || echo "aviso: $core indisponível para $abi; esse console não terá core nessa ABI"
   done
+done
 
-  for core in "${OPTIONAL_CORES[@]}"; do
-    if ! fetch_one "$abi" "$core"; then
-      echo "aviso: $core não disponível/válido para $abi; esse console ficará sem core nesta ABI"
-    fi
-  done
-
-  if [[ "$abi" == "arm64-v8a" ]]; then
-    for core in "${HEAVY_ARM64_CORES[@]}"; do
-      if ! fetch_one "$abi" "$core"; then
-        echo "ERRO: core obrigatório ausente/inválido: $core ($abi)" >&2
-        failed=1
-      fi
-    done
-    keep_list=("${expected_arm64[@]}")
-  else
-    keep_list=("${expected[@]}")
-  fi
-
-  # remove cores de execuções antigas que não fazem mais parte da lista (ex.: um pesado que apareceu na pasta ARM32)
-  for f in "$JNI"/lib*_libretro_android.so; do
-    [[ -e "$f" ]] || continue
+# Remove binários de cores que não fazem mais parte da lista (ex.: Flycast, melonDS, PPSSPP, PCSX2),
+# para que não voltem ao APK por restos de uma execução antiga.
+for dir in "$ROOT"/app/src/main/jniLibs/*/; do
+  [[ -d "$dir" ]] || continue
+  for so in "$dir"lib*_libretro_android.so; do
+    [[ -e "$so" ]] || continue
+    name="$(basename "$so")"; name="${name#lib}"; name="${name%_libretro_android.so}"
     keep=0
-    for e in "${keep_list[@]}"; do
-      [[ "$(basename "$f")" == "$e" ]] && keep=1
-    done
-    if [[ "$keep" -eq 0 ]]; then
-      echo "removido core fora da configuração ativa ($abi): $(basename "$f")"
-      rm -f "$f"
-    fi
+    for core in "${CORES[@]}"; do [[ "$core" == "$name" ]] && keep=1; done
+    if [[ "$keep" == "0" ]]; then rm -f "$so"; echo "removido (fora da lista) $(basename "$dir")/$(basename "$so")"; fi
   done
 done
 
-# Assets de sistema do PPSSPP (fontes e texturas), usados só pelo core do celular.
-pp="$ROOT/app/src/main/assets/system/PPSSPP.zip"
-if [[ ! -s "$pp" || "${FORCE:-0}" == "1" ]]; then
-  mkdir -p "$(dirname "$pp")"
-  curl -fL --retry 3 --retry-delay 2 -sS -o "$pp" "https://buildbot.libretro.com/assets/system/PPSSPP.zip" \
-    || { echo "ERRO: não foi possível baixar PPSSPP.zip" >&2; failed=1; }
-fi
-
-if [[ "$failed" -ne 0 ]]; then
-  echo "Falha: faltam cores obrigatórios (veja os erros acima)." >&2
-  exit 1
-fi
-echo "Pronto. Cores em app/src/main/jniLibs/"
+echo "Pronto. Cores em: $ROOT/app/src/main/jniLibs/"

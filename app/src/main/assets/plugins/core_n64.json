@@ -1,6 +1,6 @@
 {
   "id": "core-mupen64plus-next",
-  "name": "Mupen64Plus-Next",
+  "name": "Mupen64Plus-Next (GLES3)",
   "version": "libretro-nightly",
   "type": "native_core",
   "platforms": [
@@ -11,5 +11,7 @@
     "arm64-v8a"
   ],
   "coreLib": "libmupen64plus_next_gles3_libretro_android.so",
+  "priority": 10,
+  "minGlEs": 3.0,
   "validated": false
 }

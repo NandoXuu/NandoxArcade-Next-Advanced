@@ -25,6 +25,7 @@ object GameScanner {
             DocumentsContract.Document.COLUMN_DOCUMENT_ID,
             DocumentsContract.Document.COLUMN_DISPLAY_NAME,
             DocumentsContract.Document.COLUMN_MIME_TYPE,
+            DocumentsContract.Document.COLUMN_SIZE,
         )
         while (queue.isNotEmpty()) {
             val node = queue.removeFirst()
@@ -37,6 +38,7 @@ object GameScanner {
                     val id = it.getString(0)
                     val name = it.getString(1) ?: continue
                     val mime = it.getString(2)
+                    val size = if (it.isNull(3)) null else it.getLong(3)
                     if (mime == DocumentsContract.Document.MIME_TYPE_DIR) {
                         if (node.depth < MAX_DEPTH) queue.add(Node(id, node.folders + name, node.depth + 1))
                         continue
@@ -51,7 +53,7 @@ object GameScanner {
                     }
                     val ext = name.substringAfterLast('.', "").lowercase()
                     if (ext in SheetParser.EXTENSIONS) sheetDirs += node.docId
-                    val platform = PlatformClassifier.classify(name, node.folders) ?: continue
+                    val platform = PlatformClassifier.classify(name, node.folders, size) ?: continue
                     found += Found(
                         GameEntity(
                             title = name.substringBeforeLast('.'),

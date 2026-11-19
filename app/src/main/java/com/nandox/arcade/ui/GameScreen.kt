@@ -104,7 +104,7 @@ fun GameScreen(
 
     fun play(state: File?) {
         if (state != null) PlayHistory.pendingState(context, state) else PlayHistory.clearPending(context)
-        val text = GameLauncher.message(GameLauncher.launch(context, registry, game))
+        val text = GameLauncher.launchAndExplain(context, registry, game)
         if (text != null) Toast.makeText(context, text, Toast.LENGTH_LONG).show()
     }
 

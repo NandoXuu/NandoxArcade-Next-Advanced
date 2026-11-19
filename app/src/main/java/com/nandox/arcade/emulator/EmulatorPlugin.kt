@@ -1,12 +1,14 @@
 package com.nandox.arcade.emulator
 
+import android.app.ActivityManager
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.content.res.AssetManager
 import android.net.Uri
 import android.os.Build
-import java.io.DataInputStream
+import android.os.Process
+import com.nandox.arcade.core.Platforms
 import java.io.File
 import org.json.JSONException
 import org.json.JSONObject
@@ -27,6 +29,12 @@ data class PluginManifest(
     val launchAction: String? = null,
     val launchClass: String? = null,
     val coreLib: String? = null,
+    /** Menor vem antes quando há mais de um core para a mesma plataforma. */
+    val priority: Int = 100,
+    /** Versão mínima de OpenGL ES exigida pelo core (ex.: 3.0). */
+    val minGlEs: Double? = null,
+    /** Preenchido = plugin conhecido, mas desligado de propósito; o texto explica o motivo ao usuário. */
+    val disabledReason: String? = null,
 )
 
 object PluginManifestParser {
@@ -50,15 +58,19 @@ object PluginManifestParser {
             ?: throw PluginManifestException("Lista de plataformas vazia")
         val abis = o.optJSONArray("abis")?.let { a -> List(a.length()) { a.getString(it) } }.orEmpty()
         val pkg = o.optString("packageName").takeIf { it.isNotBlank() }
-        if (type == PluginType.EXTERNAL_APP && pkg == null) {
-            throw PluginManifestException("packageName obrigatório para app externo")
-        }
-        if (type == PluginType.NATIVE_CORE && abis.isEmpty()) {
-            throw PluginManifestException("abis obrigatório para core nativo")
-        }
+        val disabledReason = o.optString("disabledReason").takeIf { it.isNotBlank() }
         val coreLib = o.optString("coreLib").takeIf { it.isNotBlank() }
-        if (type == PluginType.NATIVE_CORE && coreLib == null) {
-            throw PluginManifestException("coreLib obrigatório para core nativo")
+        // Um plugin desligado de propósito só precisa dizer quem é e por que está desligado.
+        if (disabledReason == null) {
+            if (type == PluginType.EXTERNAL_APP && pkg == null) {
+                throw PluginManifestException("packageName obrigatório para app externo")
+            }
+            if (type == PluginType.NATIVE_CORE && abis.isEmpty()) {
+                throw PluginManifestException("abis obrigatório para core nativo")
+            }
+            if (type == PluginType.NATIVE_CORE && coreLib == null) {
+                throw PluginManifestException("coreLib obrigatório para core nativo")
+            }
         }
         return PluginManifest(
             id = text("id"),
@@ -72,11 +84,28 @@ object PluginManifestParser {
             launchAction = o.optString("launchAction").takeIf { it.isNotBlank() },
             launchClass = o.optString("launchClass").takeIf { it.isNotBlank() },
             coreLib = coreLib,
+            priority = o.optInt("priority", 100),
+            minGlEs = if (o.has("minGlEs")) o.optDouble("minGlEs").takeIf { !it.isNaN() } else null,
+            disabledReason = disabledReason,
         )
     }
 }
 
-enum class PluginStatus { READY, APP_NOT_INSTALLED, ABI_INCOMPATIBLE, RUNTIME_UNAVAILABLE, DISABLED }
+enum class PluginStatus {
+    READY,
+    APP_NOT_INSTALLED,
+
+    /** O binário (ou a ABI declarada) não é da arquitetura que este aparelho executa. */
+    ABI_INCOMPATIBLE,
+
+    /** A ABI serve, mas o arquivo do core não está no APK (ou está corrompido). */
+    RUNTIME_UNAVAILABLE,
+    GPU_INCOMPATIBLE,
+
+    /** Desligado de propósito no manifesto (disabledReason), por exigir hardware que a TV não tem. */
+    UNSUPPORTED,
+    DISABLED,
+}
 
 data class PluginDiagnostic(val manifest: PluginManifest, val status: PluginStatus, val enabled: Boolean)
 
@@ -118,28 +147,38 @@ class ExternalAppAdapter(override val manifest: PluginManifest) : EmulatorAdapte
 /**
  * Core libretro empacotado no APK (jniLibs) e executado dentro do próprio app pelo [EmulatorActivity].
  * Não depende de nenhum emulador externo instalado.
+ *
+ * O diagnóstico não confia no nome do arquivo: lê o cabeçalho ELF do .so que o Android extraiu para
+ * nativeLibraryDir e confere se é da arquitetura do processo (ARM 32 bits x ARM64) e de uma ABI
+ * declarada no manifesto. A ABI do aparelho vem de Build.SUPPORTED_ABIS, nunca é presumida.
  */
 class NativeCoreAdapter(override val manifest: PluginManifest) : EmulatorAdapter {
     private val lib = requireNotNull(manifest.coreLib)
 
-    /**
-     * O que decide é o arquivo .so que o Android realmente extraiu para este aparelho: se ele existe e o
-     * cabeçalho ELF bate com a arquitetura do aparelho, o core está pronto. O campo "abis" do manifesto
-     * só é usado para explicar a ausência do arquivo.
-     */
-    override fun diagnose(context: Context): PluginStatus {
+    // O resultado só depende de arquivos do APK instalado, que não mudam enquanto o app roda.
+    @Volatile private var cached: PluginStatus? = null
+
+    override fun diagnose(context: Context): PluginStatus =
+        cached ?: compute(context).also { cached = it }
+
+    private fun compute(context: Context): PluginStatus {
         val file = File(context.applicationInfo.nativeLibraryDir, lib)
-        if (file.exists()) {
-            return if (ElfCheck.runsOn(ElfCheck.archOf(file), PluginRegistry.deviceAbis)) {
-                PluginStatus.READY
-            } else {
-                PluginStatus.ABI_INCOMPATIBLE
-            }
-        }
-        return if (manifest.abis.none { it in PluginRegistry.deviceAbis }) {
-            PluginStatus.ABI_INCOMPATIBLE
-        } else {
-            PluginStatus.RUNTIME_UNAVAILABLE
+        val verdict = CoreCompatibility.check(
+            declaredAbis = manifest.abis,
+            deviceAbis = PluginRegistry.deviceAbis,
+            processAbis = PluginRegistry.processAbis,
+            libraryExists = file.isFile,
+            elf = if (file.isFile) Elf.read(file) else null,
+        )
+        return when (verdict) {
+            CoreCheck.ABI_NOT_SUPPORTED, CoreCheck.LIBRARY_WRONG_ARCH -> PluginStatus.ABI_INCOMPATIBLE
+            CoreCheck.LIBRARY_MISSING, CoreCheck.LIBRARY_INVALID -> PluginStatus.RUNTIME_UNAVAILABLE
+            CoreCheck.OK ->
+                if (GlEs.satisfies(PluginRegistry.glEsVersion(context), manifest.minGlEs)) {
+                    PluginStatus.READY
+                } else {
+                    PluginStatus.GPU_INCOMPATIBLE
+                }
         }
     }
 
@@ -154,39 +193,10 @@ class NativeCoreAdapter(override val manifest: PluginManifest) : EmulatorAdapter
     }
 }
 
-/** Lê o cabeçalho ELF de um .so para saber se ele é mesmo ARM 32 bits (ARMv7) ou ARM 64 bits (AArch64). */
-object ElfCheck {
-    enum class Arch { ARM32, ARM64, OTHER, NOT_ELF }
-
-    private const val EM_ARM = 0x28
-    private const val EM_AARCH64 = 0xB7
-
-    /** [header] precisa ter pelo menos os 20 primeiros bytes do arquivo. */
-    fun archOf(header: ByteArray): Arch {
-        if (header.size < 20) return Arch.NOT_ELF
-        val magic = header[0].toInt() == 0x7F && header[1].toInt() == 'E'.code &&
-            header[2].toInt() == 'L'.code && header[3].toInt() == 'F'.code
-        if (!magic) return Arch.NOT_ELF
-        val elfClass = header[4].toInt()
-        val machine = (header[18].toInt() and 0xFF) or ((header[19].toInt() and 0xFF) shl 8)
-        return when {
-            elfClass == 1 && machine == EM_ARM -> Arch.ARM32
-            elfClass == 2 && machine == EM_AARCH64 -> Arch.ARM64
-            else -> Arch.OTHER
-        }
-    }
-
-    fun archOf(file: File): Arch = runCatching {
-        val header = ByteArray(20)
-        DataInputStream(file.inputStream()).use { it.readFully(header) }
-        archOf(header)
-    }.getOrDefault(Arch.NOT_ELF)
-
-    fun runsOn(arch: Arch, deviceAbis: List<String>): Boolean = when (arch) {
-        Arch.ARM32 -> deviceAbis.any { it == "armeabi-v7a" || it == "armeabi" }
-        Arch.ARM64 -> "arm64-v8a" in deviceAbis
-        else -> false
-    }
+/** Plugin conhecido mas desligado de propósito (manifesto com disabledReason): nunca abre jogos. */
+class UnsupportedAdapter(override val manifest: PluginManifest) : EmulatorAdapter {
+    override fun diagnose(context: Context): PluginStatus = PluginStatus.UNSUPPORTED
+    override fun launch(context: Context, gameUri: Uri, platformId: String?): LaunchResult = LaunchResult.FAILED
 }
 
 class PluginStore(context: Context) {
@@ -200,8 +210,18 @@ class PluginStore(context: Context) {
         prefs.edit().putStringSet(KEY, disabled).apply()
     }
 
+    /** Plugin que o usuário escolheu como principal para a plataforma (null = ordem padrão). */
+    fun preferredFor(platformId: String): String? = prefs.getString(PREFERRED_PREFIX + platformId, null)
+
+    fun setPreferred(platformId: String, pluginId: String?) {
+        prefs.edit().apply {
+            if (pluginId == null) remove(PREFERRED_PREFIX + platformId) else putString(PREFERRED_PREFIX + platformId, pluginId)
+        }.apply()
+    }
+
     private companion object {
         const val KEY = "disabled"
+        const val PREFERRED_PREFIX = "preferred_"
     }
 }
 
@@ -238,29 +258,79 @@ object PluginLoader {
 class PluginRegistry(manifests: List<PluginManifest>, val rejected: List<Pair<String, String>> = emptyList()) {
     val all: List<PluginManifest> = manifests.distinctBy { it.id }
     private val adapters: List<EmulatorAdapter> = all.map {
-        when (it.type) {
-            PluginType.EXTERNAL_APP -> ExternalAppAdapter(it)
-            PluginType.NATIVE_CORE -> NativeCoreAdapter(it)
+        when {
+            it.disabledReason != null -> UnsupportedAdapter(it)
+            it.type == PluginType.EXTERNAL_APP -> ExternalAppAdapter(it)
+            else -> NativeCoreAdapter(it)
         }
     }
 
-    /** Cores nativos vêm primeiro (jogam dentro do app); apps externos ficam como alternativa. */
-    fun adaptersFor(platformId: String, store: PluginStore): List<EmulatorAdapter> =
-        adapters
-            .filter { platformId in it.manifest.platforms && store.isEnabled(it.manifest.id) }
-            .sortedBy { if (it.manifest.type == PluginType.NATIVE_CORE) 0 else 1 }
+    /**
+     * Plugins ativos da plataforma, na ordem em que serão tentados: o principal escolhido pelo usuário,
+     * depois cores nativos (jogam dentro do app) e por fim apps externos. Plugins desligados de
+     * propósito (disabledReason) e os que o usuário desativou ficam de fora.
+     */
+    fun adaptersFor(platformId: String, store: PluginStore): List<EmulatorAdapter> {
+        val enabled = adapters.filter {
+            platformId in it.manifest.platforms && it.manifest.disabledReason == null && store.isEnabled(it.manifest.id)
+        }
+        val order = PluginOrdering.order(enabled.map { it.manifest }, store.preferredFor(platformId)).map { it.id }
+        return enabled.sortedBy { order.indexOf(it.manifest.id) }
+    }
+
+    /** Subconjunto de [adaptersFor] que realmente consegue abrir jogos neste aparelho agora. */
+    fun readyFor(context: Context, platformId: String, store: PluginStore): List<EmulatorAdapter> =
+        adaptersFor(platformId, store).filter { it.diagnose(context) == PluginStatus.READY }
+
+    /** Texto do cartão da plataforma: o núcleo que vai abrir os jogos, ou por que não há nenhum. */
+    fun summaryFor(context: Context, platformId: String, store: PluginStore): String {
+        readyFor(context, platformId, store).firstOrNull()?.let { return it.manifest.name }
+        val known = adapters.filter { platformId in it.manifest.platforms }
+        return when {
+            known.isEmpty() -> "Sem emulador compatível"
+            known.all { it.manifest.disabledReason != null } -> "Indisponível neste aparelho"
+            else -> "Núcleo indisponível"
+        }
+    }
+
+    /** Por que nenhum plugin consegue abrir jogos desta plataforma (para mostrar ao usuário). */
+    fun explainNoneReady(context: Context, platformId: String, store: PluginStore): String {
+        val platformName = Platforms.byId(platformId)?.name ?: platformId
+        val problems = mutableListOf<Pair<String, String>>()
+        for (adapter in adapters.filter { platformId in it.manifest.platforms }) {
+            val status = when {
+                adapter.manifest.disabledReason != null -> PluginStatus.UNSUPPORTED
+                !store.isEnabled(adapter.manifest.id) -> PluginStatus.DISABLED
+                else -> adapter.diagnose(context)
+            }
+            if (status != PluginStatus.READY) {
+                problems += adapter.manifest.name to LaunchAdvice.statusReason(adapter.manifest, status, deviceAbis)
+            }
+        }
+        return LaunchAdvice.noneReady(platformName, problems)
+    }
 
     fun diagnostics(context: Context, store: PluginStore): List<PluginDiagnostic> = all.map { m ->
         val enabled = store.isEnabled(m.id)
         val status = when {
+            m.disabledReason != null -> PluginStatus.UNSUPPORTED
             !enabled -> PluginStatus.DISABLED
             else -> adapters.first { it.manifest.id == m.id }.diagnose(context)
         }
-        PluginDiagnostic(m, status, enabled)
+        PluginDiagnostic(m, status, enabled && m.disabledReason == null)
     }
 
     companion object {
+        /** Tudo o que o aparelho diz executar (ex.: "armeabi-v7a, armeabi" numa TV de 32 bits). */
         val deviceAbis: List<String> = Build.SUPPORTED_ABIS.toList()
+
+        /** ABIs do processo atual: se ele é de 32 ou de 64 bits decide qual família de .so pode ser carregada. */
+        val processAbis: List<String> =
+            (if (Process.is64Bit()) Build.SUPPORTED_64_BIT_ABIS else Build.SUPPORTED_32_BIT_ABIS).toList()
+
+        fun glEsVersion(context: Context): Int =
+            (context.getSystemService(Context.ACTIVITY_SERVICE) as? ActivityManager)
+                ?.deviceConfigurationInfo?.reqGlEsVersion ?: 0
 
         fun load(context: Context): PluginRegistry {
             val bundled = PluginLoader.loadAssets(context.assets, "plugins")

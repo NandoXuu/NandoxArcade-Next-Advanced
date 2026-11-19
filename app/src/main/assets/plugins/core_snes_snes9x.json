@@ -1,14 +1,16 @@
 {
-  "id": "core-flycast",
-  "name": "Flycast",
+  "id": "core-snes9x",
+  "name": "Snes9x",
   "version": "libretro-nightly",
   "type": "native_core",
   "platforms": [
-    "dreamcast"
+    "snes"
   ],
   "abis": [
+    "armeabi-v7a",
     "arm64-v8a"
   ],
-  "coreLib": "libflycast_libretro_android.so",
+  "coreLib": "libsnes9x_libretro_android.so",
+  "priority": 10,
   "validated": false
 }
