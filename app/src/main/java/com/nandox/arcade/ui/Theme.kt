@@ -9,7 +9,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 
 private val ArcadeColors = darkColorScheme(
-    primary = Color(0xFF9B7BFF),
+    primary = Color(0xFF8E66FF),
     onPrimary = Color(0xFFFFFFFF),
     primaryContainer = Color(0xFF3B2A6E),
     onPrimaryContainer = Color(0xFFEDE6FF),
@@ -18,11 +18,11 @@ private val ArcadeColors = darkColorScheme(
     secondaryContainer = Color(0xFF2E2A3D),
     onSecondaryContainer = Color(0xFFE2DCF2),
     tertiary = Color(0xFFCDB8FF),
-    background = Color(0xFF0D0C13),
+    background = Color(0xFF08090D),
     onBackground = Color(0xFFF2EFFA),
-    surface = Color(0xFF15131D),
+    surface = Color(0xFF12131B),
     onSurface = Color(0xFFF2EFFA),
-    surfaceVariant = Color(0xFF1F1C2B),
+    surfaceVariant = Color(0xFF1A1B26),
     onSurfaceVariant = Color(0xFF9C97AE),
     outline = Color(0xFF4A4658),
     error = Color(0xFFFFB4AB),

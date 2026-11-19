@@ -102,10 +102,15 @@ fun GameScreen(
     val platformName = Platforms.byId(game.platformId)?.name ?: game.platformId
     var pendingDelete by remember { mutableStateOf<StateSlot?>(null) }
 
+    val fx = LocalFx.current
+
     fun play(state: File?) {
-        if (state != null) PlayHistory.pendingState(context, state) else PlayHistory.clearPending(context)
-        val text = GameLauncher.launchAndExplain(context, registry, game)
-        if (text != null) Toast.makeText(context, text, Toast.LENGTH_LONG).show()
+        fx.dive {
+            if (state != null) PlayHistory.pendingState(context, state) else PlayHistory.clearPending(context)
+            val text = GameLauncher.launchAndExplain(context, registry, game)
+            if (text != null) Toast.makeText(context, text, Toast.LENGTH_LONG).show()
+            text != null
+        }
     }
 
     val newest = slots.firstOrNull()
