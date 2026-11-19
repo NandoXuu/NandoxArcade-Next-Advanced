@@ -1,0 +1,14 @@
+{
+  "id": "core-flycast",
+  "name": "Flycast",
+  "version": "libretro-nightly",
+  "type": "native_core",
+  "platforms": [
+    "dreamcast"
+  ],
+  "abis": [
+    "arm64-v8a"
+  ],
+  "coreLib": "libflycast_libretro_android.so",
+  "validated": false
+}
