@@ -267,6 +267,8 @@ private fun PluginsScreen(registry: PluginRegistry) {
                             PluginStatus.ABI_INCOMPATIBLE -> "ABI incompatível"
                             PluginStatus.RUNTIME_UNAVAILABLE -> "Core não incluído no APK"
                             PluginStatus.DISABLED -> "Desativado"
+                            PluginStatus.GPU_INCOMPATIBLE -> "GPU incompatível"
+                            PluginStatus.UNSUPPORTED -> d.manifest.disabledReason ?: "Indisponível neste aparelho"
                         }
                         val validation = if (d.manifest.validated) "validado" else "não validado"
                         Text("$status · $validation", fontSize = 13.sp)
