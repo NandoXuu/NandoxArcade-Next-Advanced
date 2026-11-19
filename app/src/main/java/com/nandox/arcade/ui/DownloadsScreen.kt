@@ -73,7 +73,7 @@ fun DownloadsScreen(registry: PluginRegistry) {
             }
             val game = GameEntity(title = d.title.substringBeforeLast('.'), platformId = platformId, uri = uri.toString())
             dao.insertGames(listOf(game))
-            val text = GameLauncher.launchAndExplain(context, registry, game)
+            val text = GameLauncher.message(GameLauncher.launch(context, registry, game))
             Toast.makeText(
                 context,
                 text ?: "${game.title} adicionado à biblioteca",

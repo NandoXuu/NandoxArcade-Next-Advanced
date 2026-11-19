@@ -71,9 +71,10 @@ fun GlobalStatesScreen(registry: PluginRegistry) {
                             if (item.platform.isNotBlank()) Text(item.platform.uppercase(), style = MaterialTheme.typography.labelSmall)
                             if (item.uri.isNotBlank()) TextButton(onClick = {
                                 PlayHistory.pendingState(context, item.file)
-                                GameLauncher.launchAndExplain(context, registry, GameEntity(
+                                val result = GameLauncher.launch(context, registry, GameEntity(
                                     title = item.gameTitle, platformId = item.platform, uri = item.uri,
-                                ))?.let { Toast.makeText(context, it, Toast.LENGTH_LONG).show() }
+                                ))
+                                GameLauncher.message(result)?.let { Toast.makeText(context, it, Toast.LENGTH_LONG).show() }
                             }) { Text("Abrir jogo e carregar") }
                             else Text("Jogo original não localizado", style = MaterialTheme.typography.labelSmall)
                         }

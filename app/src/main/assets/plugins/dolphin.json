@@ -7,6 +7,6 @@
     "gamecube",
     "wii"
   ],
-  "disabledReason": "o Dolphin só roda em CPU de 64 bits (ARMv8 ou x86-64) com OpenGL ES 3.0+; esta TV é de 32 bits (armeabi-v7a).",
+  "packageName": "org.dolphinemu.dolphinemu",
   "validated": false
 }

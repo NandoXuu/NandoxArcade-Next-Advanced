@@ -5,6 +5,9 @@
   "type": "external_app",
   "platforms": [
     "ps1",
+    "psp",
+    "nds",
+    "3ds",
     "n64",
     "gba"
   ],

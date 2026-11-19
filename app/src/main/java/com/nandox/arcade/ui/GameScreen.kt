@@ -43,6 +43,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.nandox.arcade.core.Platforms
 import com.nandox.arcade.data.ArcadeDb
 import com.nandox.arcade.data.GameEntity
+import com.nandox.arcade.emulator.LaunchResult
 import com.nandox.arcade.emulator.PlayHistory
 import com.nandox.arcade.emulator.PluginRegistry
 import com.nandox.arcade.emulator.RomStager
@@ -102,10 +103,16 @@ fun GameScreen(
     val platformName = Platforms.byId(game.platformId)?.name ?: game.platformId
     var pendingDelete by remember { mutableStateOf<StateSlot?>(null) }
 
+    val fx = LocalFx.current
+
     fun play(state: File?) {
-        if (state != null) PlayHistory.pendingState(context, state) else PlayHistory.clearPending(context)
-        val text = GameLauncher.launchAndExplain(context, registry, game)
-        if (text != null) Toast.makeText(context, text, Toast.LENGTH_LONG).show()
+        fx.dive {
+            if (state != null) PlayHistory.pendingState(context, state) else PlayHistory.clearPending(context)
+            val result = GameLauncher.launch(context, registry, game)
+            val text = GameLauncher.message(result)
+            if (text != null) Toast.makeText(context, text, Toast.LENGTH_LONG).show()
+            result == LaunchResult.FAILED
+        }
     }
 
     val newest = slots.firstOrNull()

@@ -25,14 +25,6 @@ import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import androidx.lifecycle.lifecycleScope
-import com.nandox.arcade.audio.AudioCapabilityDetector
-import com.nandox.arcade.audio.AudioDiagnostics
-import com.nandox.arcade.audio.AudioHistoryStore
-import com.nandox.arcade.audio.AudioPlan
-import com.nandox.arcade.audio.AudioPlanner
-import com.nandox.arcade.audio.AudioSession
-import com.nandox.arcade.audio.AudioSettings
-import com.nandox.arcade.audio.AudioSettingsStore
 import com.nandox.arcade.ui.ArcadeTheme
 import com.swordfish.libretrodroid.GLRetroView
 import com.swordfish.libretrodroid.GLRetroViewData
@@ -65,41 +57,13 @@ class EmulatorActivity : ComponentActivity() {
     private var shaderMode by mutableStateOf("default")
     private var padActive by mutableStateOf(false)
     private var frameSpeed by mutableStateOf(1)
-    private var audioSession: AudioSession? = null
-    private var audioPlan: AudioPlan? = null
-    private var audioSettings = AudioSettings()
-    private var audioDiagnostics by mutableStateOf<AudioDiagnostics?>(null)
-    private var audioOverlay by mutableStateOf<String?>(null)
     private val autoSaveHandler = Handler(Looper.getMainLooper())
-    private val autoSaveBusy = java.util.concurrent.atomic.AtomicBoolean(false)
     private val autoSaveTick = object : Runnable {
         override fun run() {
-            autoSaveInBackground()
+            autoSaveNow()
             autoSaveHandler.postDelayed(this, AUTO_SAVE_MS)
         }
     }
-
-    /**
-     * O autosave periódico serializa e grava o estado (dezenas de MB no N64). Na thread principal isso
-     * congelava a imagem e esvaziava o buffer de áudio a cada minuto; por isso roda em segundo plano.
-     * O autosave de onPause continua síncrono, porque a thread GL é pausada logo em seguida.
-     */
-    private fun autoSaveInBackground() {
-        if (!frameReady || retroView == null) return
-        if (audioPlan?.periodicAutosave == false) return
-        if (!autoSaveBusy.compareAndSet(false, true)) return
-        lifecycleScope.launch(Dispatchers.IO) {
-            try {
-                autoSaveNow()
-            } finally {
-                autoSaveBusy.set(false)
-            }
-        }
-    }
-
-    /** Resolução interna padrão do N64: leve em aparelhos 32 bits (ex.: Android TV ARM32), mais nítida em 64 bits. */
-    private fun defaultN64Res43(): String = if (Process.is64Bit()) "640x480" else "320x240"
-    private fun defaultN64Res169(): String = if (Process.is64Bit()) "1280x720" else "640x360"
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -147,8 +111,8 @@ class EmulatorActivity : ComponentActivity() {
                     shaderMode = shaderMode,
                     fpsLimit = getSharedPreferences("emulator_display", MODE_PRIVATE).getInt("fpsLimit", 0),
                     renderScale = getSharedPreferences("emulator_display", MODE_PRIVATE).getFloat("renderScale", 1f),
-                    n64Res43 = getSharedPreferences("emulator_display", MODE_PRIVATE).getString("n64Res43", defaultN64Res43()) ?: defaultN64Res43(),
-                    n64Res169 = getSharedPreferences("emulator_display", MODE_PRIVATE).getString("n64Res169", defaultN64Res169()) ?: defaultN64Res169(),
+                    n64Res43 = getSharedPreferences("emulator_display", MODE_PRIVATE).getString("n64Res43", "640x480") ?: "640x480",
+                    n64Res169 = getSharedPreferences("emulator_display", MODE_PRIVATE).getString("n64Res169", "1280x720") ?: "1280x720",
                     n64Aspect = getSharedPreferences("emulator_display", MODE_PRIVATE).getString("n64Aspect", "4:3") ?: "4:3",
                     onN64ResolutionChange = { aspect, resolution ->
                         getSharedPreferences("emulator_display", MODE_PRIVATE).edit()
@@ -167,9 +131,6 @@ class EmulatorActivity : ComponentActivity() {
                     onFrameSpeedChange = { changeSpeed(it) },
                     stateSlots = stateSlots,
                     platformId = intent.getStringExtra(EXTRA_PLATFORM).orEmpty(),
-                    audioOverlay = audioOverlay,
-                    audioDiagnostics = audioDiagnostics,
-                    onAudioSettingsChanged = { onAudioSettingsChanged() },
                 )
             }
         }
@@ -199,30 +160,17 @@ class EmulatorActivity : ComponentActivity() {
         val saves = File(baseDir(), "saves").apply { mkdirs() }
         val sram = File(saves, "$gameKey.srm").also { sramFile = it }
 
-        val platform = intent.getStringExtra(EXTRA_PLATFORM).orEmpty()
-        val caps = AudioCapabilityDetector.detect(this)
-        val settings = AudioSettingsStore.forContext(this).load(platform)
-        val baseline = AudioHistoryStore.forContext(this).load(platform)
-        val plan = AudioPlanner.resolve(settings, caps, platform, baseline)
-        audioSettings = settings
-        audioPlan = plan
-        applyDisplayHints(plan)
-
         val data = GLRetroViewData(this).apply {
             coreFilePath = lib.absolutePath
             gameFilePath = rom.absolutePath
             systemDirectory = systemDir().absolutePath
             savesDirectory = saves.absolutePath
-            // Baixa latência usa buffer de só 4 quadros: em TV/HDMI e CPU ARM32 que não segura velocidade total ele
-            // estoura e o som picota. O plano de áudio escolhe 4 ou 8 quadros conforme o modo, o console e o aparelho.
-            preferLowLatencyAudio = plan.lowLatencyStream
-            skipDuplicateFrames = true
             if (sram.isFile) saveRAMState = runCatching { sram.readBytes() }.getOrNull()
             if (intent.getStringExtra(EXTRA_PLATFORM) == "n64") {
                 val prefs = getSharedPreferences("emulator_display", MODE_PRIVATE)
                 variables = arrayOf(
-                    Variable("mupen64plus-43screensize", prefs.getString("n64Res43", defaultN64Res43())),
-                    Variable("mupen64plus-169screensize", prefs.getString("n64Res169", defaultN64Res169())),
+                    Variable("mupen64plus-43screensize", prefs.getString("n64Res43", "640x480")),
+                    Variable("mupen64plus-169screensize", prefs.getString("n64Res169", "1280x720")),
                     Variable("mupen64plus-aspect", prefs.getString("n64Aspect", "4:3")),
                 )
             }
@@ -240,37 +188,17 @@ class EmulatorActivity : ComponentActivity() {
             "sharp" -> ShaderConfig.Sharp
             else -> ShaderConfig.Default
         }
-        val session = AudioSession(
-            context = this,
-            view = v,
-            platformId = platform,
-            gameKey = gameKey,
-            initialPlan = plan,
-            initialSettings = settings,
-            caps = caps,
-            baseline = baseline,
-            isAudioWanted = { audioEnabled },
-            onUpdate = { diag ->
-                audioDiagnostics = diag
-                audioOverlay = if (audioSettings.overlay) diag.overlayText() else null
-            },
-        )
-        audioSession = session
         lifecycle.addObserver(v)
         lifecycleScope.launch { v.getGLRetroErrors().collect { fail(errorText(it)) } }
         lifecycleScope.launch {
             v.getGLRetroEvents().collect {
                 if (it is GLRetroView.GLRetroEvents.FrameRendered) {
                     frameReady = true
-                    session.onFrame()
                     if (!pendingStateApplied) {
                         pendingStateApplied = true
-                        // o valor setado antes da criação do core nativo pode não ter efeito; reaplica agora
-                        v.audioEnabled = audioEnabled
                         PlayHistory.consumePendingState(this@EmulatorActivity)?.let { state ->
                             runCatching { v.unserializeState(state.readBytes()) }
                         }
-                        session.start()
                     }
                 }
             }
@@ -378,7 +306,6 @@ class EmulatorActivity : ComponentActivity() {
         lifecycleScope.launch {
             val bytes = withContext(Dispatchers.IO) { runCatching { file.readBytes() }.getOrNull() }
             val loaded = bytes?.let { runCatching { v.unserializeState(it) }.getOrDefault(false) } ?: false
-            if (loaded) audioSession?.resync("save carregado")
             Toast.makeText(this@EmulatorActivity, if (loaded) "Save carregado" else "Não foi possível carregar este save", Toast.LENGTH_LONG).show()
         }
     }
@@ -424,7 +351,6 @@ class EmulatorActivity : ComponentActivity() {
     override fun onResume() {
         super.onResume()
         autoSaveHandler.postDelayed(autoSaveTick, AUTO_SAVE_MS)
-        audioSession?.resync("jogo retomado")
     }
 
     override fun onPause() {
@@ -433,11 +359,9 @@ class EmulatorActivity : ComponentActivity() {
         // SRAM precisa ser lida antes de a thread GL ser pausada.
         saveSram()
         captureLastPlayed()
-        audioSession?.checkpoint()
         super.onPause()
     }
 
-    @Synchronized
     private fun autoSaveNow() {
         val v = retroView ?: return
         if (!frameReady) return
@@ -450,26 +374,6 @@ class EmulatorActivity : ComponentActivity() {
             part.writeBytes(bytes)
             if (target.exists()) target.delete()
             part.renameTo(target)
-        }
-    }
-
-    /** O painel de áudio mudou: relê os ajustes do console e aplica o que vale com o jogo aberto. */
-    private fun onAudioSettingsChanged() {
-        val platform = intent.getStringExtra(EXTRA_PLATFORM).orEmpty()
-        val caps = AudioCapabilityDetector.detect(this)
-        val settings = AudioSettingsStore.forContext(this).load(platform)
-        val plan = AudioPlanner.resolve(settings, caps, platform, AudioHistoryStore.forContext(this).load(platform))
-        audioSettings = settings
-        audioPlan = plan
-        applyDisplayHints(plan)
-        audioSession?.updateSettings(plan, settings)
-        if (!settings.overlay) audioOverlay = null
-    }
-
-    private fun applyDisplayHints(plan: AudioPlan) {
-        runCatching { window.setSustainedPerformanceMode(plan.sustainedPerformance) }
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-            runCatching { window.setPreferMinimalPostProcessing(plan.minimalPostProcessing) }
         }
     }
 
@@ -487,10 +391,7 @@ class EmulatorActivity : ComponentActivity() {
 
     override fun onDestroy() {
         super.onDestroy()
-        if (isFinishing) {
-            audioSession?.finish()
-            Process.killProcess(Process.myPid())
-        }
+        if (isFinishing) Process.killProcess(Process.myPid())
     }
 
     override fun onWindowFocusChanged(hasFocus: Boolean) {

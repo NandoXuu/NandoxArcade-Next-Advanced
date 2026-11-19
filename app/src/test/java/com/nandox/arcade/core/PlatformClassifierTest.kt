@@ -26,29 +26,4 @@ class PlatformClassifierTest {
     fun ambiguousWithoutHintIsUnknown() {
         assertEquals(PlatformClassifier.UNKNOWN, PlatformClassifier.classify("a.iso", listOf("Downloads")))
     }
-
-    @Test
-    fun nintendo64ExtensionsAllMapToN64() {
-        for (ext in listOf("z64", "n64", "v64", "Z64")) {
-            assertEquals("n64", PlatformClassifier.classify("Game.$ext", emptyList()))
-        }
-    }
-
-    @Test
-    fun lightConsolesAreClassifiedByExtension() {
-        assertEquals("nes", PlatformClassifier.classify("Game.nes", emptyList()))
-        assertEquals("snes", PlatformClassifier.classify("Game.sfc", emptyList()))
-        assertEquals("snes", PlatformClassifier.classify("Game.SMC", emptyList()))
-        assertEquals("gb", PlatformClassifier.classify("Game.gb", emptyList()))
-        assertEquals("gb", PlatformClassifier.classify("Game.gbc", emptyList()))
-        assertEquals("gba", PlatformClassifier.classify("Game.gba", emptyList()))
-        assertEquals("md", PlatformClassifier.classify("Game.md", emptyList()))
-        assertEquals("md", PlatformClassifier.classify("Game.gen", emptyList()))
-        assertEquals("md", PlatformClassifier.classify("Game.smd", emptyList()))
-    }
-
-    @Test
-    fun binKeepsBeingPlayStationSoExistingLibrariesDoNotChange() {
-        assertEquals("ps1", PlatformClassifier.classify("Game.bin", emptyList()))
-    }
 }

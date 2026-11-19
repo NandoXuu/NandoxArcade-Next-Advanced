@@ -138,14 +138,14 @@ fun VideoSettingsPanel(prefs: LayeredPrefs, platformId: String?, onChange: (Stri
                 title = "Nintendo 64 · resolução interna (4:3)",
                 hint = "Resolução real do core. Aplica ao reiniciar o jogo.",
                 options = resOptions(N64_43),
-                selected = prefs.getString("n64Res43", if (android.os.Process.is64Bit()) "640x480" else "320x240"),
+                selected = prefs.getString("n64Res43", "640x480"),
             ) { set("n64Res43", it) }
         } else {
             ChipSetting(
                 title = "Nintendo 64 · resolução interna (16:9)",
                 hint = "Resolução real do core. Aplica ao reiniciar o jogo.",
                 options = resOptions(N64_169),
-                selected = prefs.getString("n64Res169", if (android.os.Process.is64Bit()) "1280x720" else "640x360"),
+                selected = prefs.getString("n64Res169", "1280x720"),
             ) { set("n64Res169", it) }
         }
     }

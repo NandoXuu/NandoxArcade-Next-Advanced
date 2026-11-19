@@ -9,12 +9,7 @@ data class Platform(
 
 object Platforms {
     val all: List<Platform> = listOf(
-        Platform("nes", "Nintendo NES", "Nintendo", setOf("nes", "unf", "unif")),
-        Platform("snes", "Super Nintendo", "Nintendo", setOf("sfc", "smc")),
-        Platform("gb", "Game Boy", "Nintendo", setOf("gb")),
-        Platform("gbc", "Game Boy Color", "Nintendo", setOf("gbc")),
-        Platform("genesis", "Mega Drive / Genesis", "Sega", setOf("md", "gen", "bin")),
-        Platform("ps1", "PlayStation", "Sony", setOf("cue", "bin", "iso", "chd", "pbp")),
+        Platform("ps1", "PlayStation", "Sony", setOf("cue", "bin", "chd", "pbp")),
         Platform("ps2", "PlayStation 2", "Sony", setOf("iso", "chd", "cso")),
         Platform("psp", "PSP", "Sony", setOf("iso", "cso", "pbp")),
         Platform("nds", "Nintendo DS", "Nintendo", setOf("nds")),

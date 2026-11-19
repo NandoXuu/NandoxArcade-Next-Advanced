@@ -44,7 +44,6 @@ fun AppSettingsScreen(
     onSources: () -> Unit,
     onSaves: () -> Unit,
     onBack: () -> Unit,
-    onAudio: () -> Unit = {},
 ) {
     val context = LocalContext.current
     val store = remember { AppSettings.global(context) }
@@ -100,7 +99,6 @@ fun AppSettingsScreen(
                 )
             }
             SettingsCard("Gerenciar") {
-                SettingsLink("Áudio avançado", "Modos, buffer, recuperação e diagnóstico por console", onAudio)
                 SettingsLink("Controles e gamepad", "Mapeamento de botões e navegação", onControls)
                 SettingsLink("Emuladores", "Estado e compatibilidade dos cores", onPlugins)
                 SettingsLink("Pastas de jogos", "Locais de jogos e permissões", onSources)

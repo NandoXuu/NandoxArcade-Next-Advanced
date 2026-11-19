@@ -3,9 +3,7 @@
 
     <uses-permission android:name="android.permission.INTERNET" />
 
-    <!-- Compatível com Android TV e com dispositivos sem tela sensível ao toque. -->
     <uses-feature android:name="android.hardware.touchscreen" android:required="false" />
-    <uses-feature android:name="android.hardware.type.television" android:required="false" />
     <uses-feature android:name="android.hardware.gamepad" android:required="false" />
     <uses-feature android:name="android.software.leanback" android:required="false" />
 
